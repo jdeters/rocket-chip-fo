@@ -1,2 +1,1 @@
-A Feature-Oriented Performance Counter System in the Rocket Chip Generator
-=====================
+# A Feature-Oriented Performance Counter System in the Rocket Chip Generator
