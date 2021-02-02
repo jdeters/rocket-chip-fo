@@ -61,7 +61,7 @@ class TinyConfig extends Config(
   new WithNoMemPort ++
   new WithNMemoryChannels(0) ++
   new WithNBanks(0) ++
-  new With1TinyCore ++
+  new WithCustomTinyCore ++
   new WithIncoherentBusTopology ++
   new BaseConfig)
 
