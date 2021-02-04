@@ -38,10 +38,10 @@ class FrontendResp(implicit p: Parameters) extends CoreBundle()(p) {
   val replay = Bool()
 }
 
-class FrontendPerfEvents extends Bundle {
+/*class FrontendPerfEvents extends Bundle {
   val acquire = Bool()
   val tlbMiss = Bool()
-}
+}*/
 
 class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val might_request = Bool(OUTPUT)
@@ -54,7 +54,7 @@ class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val ras_update = Valid(new RASUpdate)
   val flush_icache = Bool(OUTPUT)
   val npc = UInt(INPUT, width = vaddrBitsExtended)
-  val perf = new FrontendPerfEvents().asInput
+  //val perf = new FrontendPerfEvents().asInput
 }
 
 class Frontend(val icacheParams: ICacheParams, staticIdForMetadataUseOnly: Int)(implicit p: Parameters) extends LazyModule {
@@ -325,9 +325,10 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
   io.cpu.resp <> fq.io.deq
 
   // performance events
-  io.cpu.perf := icache.io.perf
-  io.cpu.perf.tlbMiss := io.ptw.req.fire()
-  io.errors := icache.io.errors
+  //io.cpu.perf := icache.io.perf
+  //io.cpu.perf.tlbMiss := io.ptw.req.fire()
+  SignalThreadder.pluck("icache_tlbMiss", io.ptw.req.fire())
+  //io.errors := icache.io.errors
 
   // gate the clock
   clock_en_reg := !rocketParams.clockGate ||
