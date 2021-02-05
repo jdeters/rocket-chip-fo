@@ -6,6 +6,30 @@ package freechips.rocketchip.rocket
 import Chisel._
 import freechips.rocketchip.util._
 import freechips.rocketchip.util.property._
+import freechips.rocketchip.tile._
+import freechips.rocketchip.config.Parameters
+
+class PerfCounterIO(implicit p: Parameters) extends CoreBundle
+    with HasCoreParameters {
+  val eventSel = UInt(OUTPUT, xLen)
+  val inc = UInt(INPUT, log2Ceil(1+retireWidth))
+}
+
+class PerformanceCounters(csrFile: CSRFile) (implicit p: Parameters) extends CoreModule()(p) {
+
+  val io = IO(new PerfCounterIO)
+
+  val firstCtr = CSRs.cycle
+  val firstCtrH = CSRs.cycleh
+  val firstHPC = CSRs.hpmcounter3
+  val firstHPCH = CSRs.hpmcounter3h
+  val firstHPE = CSRs.mhpmevent3
+  val firstMHPC = CSRs.mhpmcounter3
+  val firstMHPCH = CSRs.mhpmcounter3h
+  val firstHPM = 3
+  val nHPM = CSR.nCtr - firstHPM
+  val hpmWidth = 40
+}
 
 class EventSet(val gate: (UInt, UInt) => Bool, val events: Seq[(String, () => Bool)]) {
   def size = events.size
