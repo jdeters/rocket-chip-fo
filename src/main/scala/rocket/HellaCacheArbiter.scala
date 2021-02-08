@@ -60,7 +60,7 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
       resp.valid := io.mem.resp.valid && tag_hit
       io.requestor(i).s2_xcpt := io.mem.s2_xcpt
       io.requestor(i).ordered := io.mem.ordered
-      //io.requestor(i).perf := io.mem.perf
+      io.requestor(i).perf := io.mem.perf
       io.requestor(i).s2_nack := io.mem.s2_nack && s2_id === UInt(i)
       io.requestor(i).s2_nack_cause_raw := io.mem.s2_nack_cause_raw
       io.requestor(i).s2_uncached := io.mem.s2_uncached

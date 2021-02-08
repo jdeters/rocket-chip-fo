@@ -1043,15 +1043,11 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
     lrscCount > 0 || blockProbeAfterGrantCount > 0
 
   // performance events
-  //io.cpu.perf.acquire := edge.done(tl_out_a)
-  SignalThreadder.pluck("dcache_aquire", edge.done(tl_out_a))
-  //io.cpu.perf.release := edge.done(tl_out_c)
-  SignalThreadder.pluck("dcache_release", edge.done(tl_out_c))
-  //io.cpu.perf.grant := tl_out.d.valid && d_last
-  SignalThreadder.pluck("dcache_grant", tl_out.d.valid && d_last)
-  //io.cpu.perf.tlbMiss := io.ptw.req.fire()
-  SignalThreadder.pluck("dcache_tlbMiss", io.ptw.req.fire())
-  /* io.cpu.perf.storeBufferEmptyAfterLoad := !(
+  io.cpu.perf.acquire := edge.done(tl_out_a)
+  io.cpu.perf.release := edge.done(tl_out_c)
+  io.cpu.perf.grant := tl_out.d.valid && d_last
+  io.cpu.perf.tlbMiss := io.ptw.req.fire()
+  io.cpu.perf.storeBufferEmptyAfterLoad := !(
     (s1_valid && s1_write) ||
     ((s2_valid && s2_write && !s2_waw_hazard) || pstore1_held) ||
     pstore2_valid)
@@ -1063,8 +1059,8 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
     ((s2_valid && s2_write && pstore1_rmw) && (s1_valid && s1_write && !s1_waw_hazard)) ||
     (pstore2_valid && pstore1_valid_likely && (s1_valid && s1_write)))
   io.cpu.perf.canAcceptStoreThenRMW := io.cpu.perf.canAcceptStoreThenLoad && !pstore2_valid
-  io.cpu.perf.canAcceptLoadThenLoad := !((s1_valid && s1_write && needsRead(s1_req)) && ((s2_valid && s2_write && !s2_waw_hazard || pstore1_held) || pstore2_valid)) */
-  SignalThreadder.pluck("dcache_blocked", {
+  io.cpu.perf.canAcceptLoadThenLoad := !((s1_valid && s1_write && needsRead(s1_req)) && ((s2_valid && s2_write && !s2_waw_hazard || pstore1_held) || pstore2_valid))
+  io.cpu.perf.blocked := {
     // stop reporting blocked just before unblocking to avoid overly conservative stalling
     val beatsBeforeEnd = outer.crossing match {
       case SynchronousCrossing(_) => 2
@@ -1078,7 +1074,7 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
       refill_count >= (cacheBlockBytes / beatBytes - beatsBeforeEnd)
     }
     cached_grant_wait && !near_end_of_refill
-  })
+  }
 
   // report errors
   val (data_error, data_error_uncorrectable, data_error_addr) =

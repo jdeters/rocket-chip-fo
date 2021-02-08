@@ -17,16 +17,14 @@ object SignalThreadder {
   val signals = HashMap[String, SignalPassthrough]()
 
   //pluck the signal from the context and thread it through a module
-  def pluck(name: String, signal: Data): Data = {
+  def pluck(name: String, signal: Data) = {
     val newPassthrough = Module(new SignalPassthrough)
 
     newPassthrough.io.signalIn := signal
 
     signals += (name -> newPassthrough)
-
-    newPassthrough.io.signalOut
   }
 
   //get signal by name
-  def thread(name: String) = signals(name).io.signalOut
+  def thread(name: String) = signals(name)
 }

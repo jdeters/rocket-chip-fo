@@ -107,9 +107,9 @@ class ICacheResp(outer: ICache) extends Bundle {
   override def cloneType = new ICacheResp(outer).asInstanceOf[this.type]
 }
 
-/*class ICachePerfEvents extends Bundle {
+class ICachePerfEvents extends Bundle {
   val acquire = Bool()
-}*/
+}
 
 class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
   val req = Decoupled(new ICacheReq).flip
@@ -123,7 +123,7 @@ class ICacheBundle(val outer: ICache) extends CoreBundle()(outer.p) {
   val invalidate = Bool(INPUT)
 
   val errors = new ICacheErrors
-  //val perf = new ICachePerfEvents().asOutput
+  val perf = new ICachePerfEvents().asOutput
 
   val clock_enabled = Bool(INPUT)
   val keep_clock_enabled = Bool(OUTPUT)
@@ -474,8 +474,7 @@ class ICacheModule(outer: ICache) extends LazyModuleImp(outer)
   when (refill_fire) { refill_valid := true.B }
   when (refill_done) { refill_valid := false.B}
 
-  //io.perf.acquire := refill_fire
-  SignalThreadder.pluck("icache_aquire", refill_fire)
+  io.perf.acquire := refill_fire
   io.keep_clock_enabled :=
     tl_in.map(tl => tl.a.valid || tl.d.valid || s1_slaveValid || s2_slaveValid || s3_slaveValid).getOrElse(false.B) || // ITIM
     s1_valid || s2_valid || refill_valid || send_hint || hint_outstanding // I$

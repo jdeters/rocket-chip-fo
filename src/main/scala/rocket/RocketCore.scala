@@ -160,12 +160,12 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
       ++ (if (!usingFPU) Seq() else Seq(
         ("fp interlock", () => id_ex_hazard && ex_ctrl.fp || id_mem_hazard && mem_ctrl.fp || id_wb_hazard && wb_ctrl.fp || id_ctrl.fp && id_stall_fpu)))),
     new EventSet((mask, hits) => (mask & hits).orR, Seq(
-      ("I$ miss", () => Wire(SignalThreadder.thread("icache_aquire").asInstanceOf[Bool])),
-      ("D$ miss", () => Wire(SignalThreadder.thread("dcache_aquire").asInstanceOf[Bool])),
-      ("D$ release", () => Wire(SignalThreadder.thread("dcache_release").asInstanceOf[Bool])),
-      ("ITLB miss", () => Wire(SignalThreadder.thread("icache_tlbMiss").asInstanceOf[Bool])),
-      ("DTLB miss", () => Wire(SignalThreadder.thread("dcache_tlbMiss").asInstanceOf[Bool])),
-      ("L2 TLB miss", () => Wire(SignalThreadder.thread("l2_miss").asInstanceOf[Bool]))))))
+      ("I$ miss", () => io.imem.perf.acquire),
+      ("D$ miss", () => io.dmem.perf.acquire),
+      ("D$ release", () => io.dmem.perf.release),
+      ("ITLB miss", () => io.imem.perf.tlbMiss),
+      ("DTLB miss", () => io.dmem.perf.tlbMiss),
+      ("L2 TLB miss", () => io.ptw.perf.l2miss)))))
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {
@@ -762,9 +762,8 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   val dcache_blocked = {
     // speculate that a blocked D$ will unblock the cycle after a Grant
     val blocked = Reg(Bool())
-    val dcache_grant = Wire(SignalThreadder.thread("dcache_grant").asInstanceOf[Bool])
-    blocked := !io.dmem.req.ready && io.dmem.clock_enabled && !dcache_grant && (blocked || io.dmem.req.valid || io.dmem.s2_nack)
-    blocked && !dcache_grant
+    blocked := !io.dmem.req.ready && io.dmem.clock_enabled && !io.dmem.perf.grant && (blocked || io.dmem.req.valid || io.dmem.s2_nack)
+    blocked && !io.dmem.perf.grant
   }
   val rocc_blocked = Reg(Bool())
   rocc_blocked := !wb_xcpt && !io.rocc.cmd.ready && (io.rocc.cmd.valid || rocc_blocked)
@@ -859,14 +858,12 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   io.rocc.cmd.bits.rs2 := wb_reg_rs2
 
   // gate the clock
-  //this has to be wraped in a wire to get around this bug: https://github.com/freechipsproject/firrtl/issues/1161
-  val release = Wire(SignalThreadder.thread("dcache_release").asInstanceOf[Bool])
-  val unpause = csr.io.time(rocketParams.lgPauseCycles-1, 0) === 0 || csr.io.inhibit_cycle || release || take_pc
+  val unpause = csr.io.time(rocketParams.lgPauseCycles-1, 0) === 0 || csr.io.inhibit_cycle || io.dmem.perf.release || take_pc
   when (unpause) { id_reg_pause := false }
   io.cease := csr.io.status.cease && !clock_en_reg
   io.wfi := csr.io.status.wfi
   if (rocketParams.clockGate) {
-    long_latency_stall := csr.io.csr_stall || release || id_reg_pause && !unpause
+    long_latency_stall := csr.io.csr_stall || io.dmem.perf.blocked || id_reg_pause && !unpause
     clock_en := clock_en_reg || ex_pc_valid || (!long_latency_stall && io.imem.resp.valid)
     clock_en_reg :=
       ex_pc_valid || mem_pc_valid || wb_pc_valid || // instruction in flight

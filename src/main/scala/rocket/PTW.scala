@@ -39,12 +39,12 @@ class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p)
   val customCSRs = coreParams.customCSRs.asInput
 }
 
-/*class PTWPerfEvents extends Bundle {
+class PTWPerfEvents extends Bundle {
   val l2miss = Bool()
   val l2hit = Bool()
   val pte_miss = Bool()
   val pte_hit = Bool()
-}*/
+}
 
 class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
     with HasCoreParameters {
@@ -52,7 +52,7 @@ class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
   val sfence = Valid(new SFenceReq).flip
   val status = new MStatus().asInput
   val pmp = Vec(nPMPs, new PMP).asInput
-  //val perf = new PTWPerfEvents().asOutput
+  val perf = new PTWPerfEvents().asOutput
   val customCSRs = coreParams.customCSRs.asInput
   val clock_enabled = Bool(OUTPUT)
 }
@@ -102,8 +102,6 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     val mem = new HellaCacheIO
     val dpath = new DatapathPTWIO
   }
-
-  val l2Miss = Wire(Bool())
 
   val omSRAMs = collection.mutable.ListBuffer[OMSRAM]()
 
@@ -195,16 +193,15 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     (hit && count < pgLevels-1, Mux1H(hits, data))
   }
   val pte_hit = RegNext(false.B)
-  //io.dpath.perf.pte_miss := false
-  //io.dpath.perf.pte_hit := pte_hit && (state === s_req) && !io.dpath.perf.l2hit
-  //assert(!(io.dpath.perf.l2hit && (io.dpath.perf.pte_miss || io.dpath.perf.pte_hit)),
-    //"PTE Cache Hit/Miss Performance Monitor Events are lower priority than L2TLB Hit event")
+  io.dpath.perf.pte_miss := false
+  io.dpath.perf.pte_hit := pte_hit && (state === s_req) && !io.dpath.perf.l2hit
+  assert(!(io.dpath.perf.l2hit && (io.dpath.perf.pte_miss || io.dpath.perf.pte_hit)),
+    "PTE Cache Hit/Miss Performance Monitor Events are lower priority than L2TLB Hit event")
 
   val l2_refill = RegNext(false.B)
   l2_refill_wire := l2_refill
-  l2Miss := false.B
-  //io.dpath.perf.l2miss := false
-  //io.dpath.perf.l2hit := false
+  io.dpath.perf.l2miss := false
+  io.dpath.perf.l2hit := false
   val (l2_hit, l2_error, l2_pte, l2_tlb_ram) = if (coreParams.nL2TLBEntries == 0) (false.B, false.B, Wire(new PTE), None) else {
     val code = new ParityCode
     require(isPow2(coreParams.nL2TLBEntries))
@@ -264,9 +261,8 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     val s2_entry_vec = s2_rdata.map(_.uncorrected.asTypeOf(new L2TLBEntry(nL2TLBSets)))
     val s2_hit_vec = (0 until coreParams.nL2TLBWays).map(way => s2_valid_vec(way) && (r_tag === s2_entry_vec(way).tag))
     val s2_hit = s2_valid && s2_hit_vec.orR
-    l2Miss := s2_valid && !(s2_hit_vec.orR)
-    //io.dpath.perf.l2hit := s2_hit
-    SignalThreadder.pluck("l2_hit", s2_hit)
+    io.dpath.perf.l2miss := s2_valid && !(s2_hit_vec.orR)
+    io.dpath.perf.l2hit := s2_hit
     when (s2_hit) {
       l2_plru.access(r_idx, OHToUInt(s2_hit_vec))
       assert((PopCount(s2_hit_vec) === 1.U) || s2_error, "L2 TLB multi-hit")
@@ -284,8 +280,6 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     omSRAMs += omSRAM
     (s2_hit, s2_error, s2_pte, Some(ram))
   }
-
-  SignalThreadder.pluck("l2_miss", l2Miss)
 
   // if SFENCE occurs during walk, don't refill PTE cache or L2 TLB until next walk
   invalidated := io.dpath.sfence.valid || (invalidated && state =/= s_ready)
@@ -353,7 +347,7 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     }
     is (s_wait2) {
       next_state := s_wait3
-      //io.dpath.perf.pte_miss := count < pgLevels-1
+      io.dpath.perf.pte_miss := count < pgLevels-1
       when (io.mem.s2_xcpt.ae.ld) {
         resp_ae := true
         next_state := s_ready
