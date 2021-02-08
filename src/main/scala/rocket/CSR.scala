@@ -295,19 +295,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     val customCSRs = Vec(CSRFile.this.customCSRs.size, new CustomCSRIO).asOutput
   }
 
-  val performanceCounters = Module(new PerformanceCounters(perfEventSets))
-  performanceCounters.io.retire := io.retire
-  performanceCounters.io.ungated_clock := io.ungated_clock
-  performanceCounters.io.csr_stall := io.csr_stall
-  (performanceCounters.io.counters zip io.counters) foreach { case (pc, csr) => {
-    pc.inc := csr.inc
-    csr.eventSel := pc.eventSel
-  }}
-  (performanceCounters.io.decode zip io.decode) foreach { case (pc, csr) => {
-    pc.csr := csr.csr
-  }}
-  io.inhibit_cycle := performanceCounters.io.inhibit_cycle
-  io.time := performanceCounters.io.time
+  val performanceCounters = new PerformanceCounters(perfEventSets, this)
 
   val reset_mstatus = Wire(init=new MStatus().fromBits(0))
   reset_mstatus.mpp := PRV.M
@@ -574,16 +562,13 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     reg
   }
 
-  performanceCounters.buildMappings(this)
+  performanceCounters.buildMappings()
 
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
   Seq(CSRs.mimpid, CSRs.marchid, CSRs.mvendorid).foreach(id => read_mapping.getOrElseUpdate(id, 0.U))
 
   val decoded_addr = read_mapping map { case (k, v) => k -> (io.rw.addr === k) }
   val wdata = readModifyWriteCSR(io.rw.cmd, io.rw.rdata, io.rw.wdata)
-  performanceCounters.io.wdata := wdata
-
-  //performanceCounters.buildDecode(this)
 
   val system_insn = io.rw.cmd === CSR.I
   val decode_table = Seq(        SCALL->       List(Y,N,N,N,N,N),
@@ -837,7 +822,9 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
   }
 
   val csr_wen = io.rw.cmd.isOneOf(CSR.S, CSR.C, CSR.W)
-  performanceCounters.io.csr_wen := csr_wen
+
+  performanceCounters.buildDecode()
+  
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
   when (csr_wen) {
     when (decoded_addr(CSRs.mstatus)) {
