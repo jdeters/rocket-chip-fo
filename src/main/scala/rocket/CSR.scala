@@ -295,8 +295,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     val customCSRs = Vec(CSRFile.this.customCSRs.size, new CustomCSRIO).asOutput
   }
 
-  val performanceCounters = new PerformanceCounters(perfEventSets, this)
-
   val reset_mstatus = Wire(init=new MStatus().fromBits(0))
   reset_mstatus.mpp := PRV.M
   reset_mstatus.prv := PRV.M
@@ -457,22 +455,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
   val read_mtvec = formTVec(reg_mtvec).padTo(xLen)
   val read_stvec = formTVec(reg_stvec).sextTo(xLen)
 
-  val read_mapping = LinkedHashMap[Int,Bits](
-    CSRs.tselect -> reg_tselect,
-    CSRs.tdata1 -> reg_bp(reg_tselect).control.asUInt,
-    CSRs.tdata2 -> reg_bp(reg_tselect).address.sextTo(xLen),
-    CSRs.tdata3 -> reg_bp(reg_tselect).textra.asUInt,
-    CSRs.misa -> reg_misa,
-    CSRs.mstatus -> read_mstatus,
-    CSRs.mtvec -> read_mtvec,
-    CSRs.mip -> read_mip,
-    CSRs.mie -> reg_mie,
-    CSRs.mscratch -> reg_mscratch,
-    CSRs.mepc -> readEPC(reg_mepc).sextTo(xLen),
-    CSRs.mtval -> reg_mtval.sextTo(xLen),
-    CSRs.mcause -> reg_mcause,
-    CSRs.mhartid -> io.hartid)
-
   val debug_csrs = if (!usingDebug) LinkedHashMap() else LinkedHashMap[Int,Bits](
     CSRs.dcsr -> reg_dcsr.asUInt,
     CSRs.dpc -> readEPC(reg_dpc).sextTo(xLen),
@@ -507,12 +489,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     CSRs.vl -> reg_vconfig.get.vl,
     CSRs.vlenb -> (vLen / 8).U)
 
-  read_mapping ++= debug_csrs
-  read_mapping ++= nmi_csrs
-  read_mapping ++= context_csrs
-  read_mapping ++= fp_csrs
-  read_mapping ++= vector_csrs
-
   if (usingSupervisor) {
     val read_sie = reg_mie & read_mideleg
     val read_sip = read_mip & read_mideleg
@@ -528,40 +504,21 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     read_sstatus.spp := io.status.spp
     read_sstatus.spie := io.status.spie
     read_sstatus.sie := io.status.sie
-
-    read_mapping += CSRs.sstatus -> (read_sstatus.asUInt())(xLen-1,0)
-    read_mapping += CSRs.sip -> read_sip.asUInt
-    read_mapping += CSRs.sie -> read_sie.asUInt
-    read_mapping += CSRs.sscratch -> reg_sscratch
-    read_mapping += CSRs.scause -> reg_scause
-    read_mapping += CSRs.stval -> reg_stval.sextTo(xLen)
-    read_mapping += CSRs.satp -> reg_satp.asUInt
-    read_mapping += CSRs.sepc -> readEPC(reg_sepc).sextTo(xLen)
-    read_mapping += CSRs.stvec -> read_stvec
-    read_mapping += CSRs.mideleg -> read_mideleg
-    read_mapping += CSRs.medeleg -> read_medeleg
   }
 
   val pmpCfgPerCSR = xLen / new PMPConfig().getWidth
   def pmpCfgIndex(i: Int) = (xLen / 32) * (i / pmpCfgPerCSR)
-  if (reg_pmp.nonEmpty) {
-    require(reg_pmp.size <= CSR.maxPMPs)
-    val read_pmp = reg_pmp.padTo(CSR.maxPMPs, 0.U.asTypeOf(new PMP))
-    for (i <- 0 until read_pmp.size by pmpCfgPerCSR)
-      read_mapping += (CSRs.pmpcfg0 + pmpCfgIndex(i)) -> read_pmp.map(_.cfg).slice(i, i + pmpCfgPerCSR).asUInt
-    for ((pmp, i) <- read_pmp zipWithIndex)
-      read_mapping += (CSRs.pmpaddr0 + i) -> pmp.readAddr
-  }
 
   // implementation-defined CSRs
   val reg_custom = customCSRs.map { csr =>
     require(csr.mask >= 0 && csr.mask.bitLength <= xLen)
-    require(!read_mapping.contains(csr.id))
     val reg = csr.init.map(init => RegInit(init.U(xLen.W))).getOrElse(Reg(UInt(xLen.W)))
-    read_mapping += csr.id -> reg
     reg
   }
 
+  val read_mapping = LinkedHashMap[Int,Bits]()
+  val performanceCounters = new PerformanceCounters(perfEventSets, this)
+  buildMappings()
   performanceCounters.buildMappings()
 
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
@@ -823,200 +780,10 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
 
   val csr_wen = io.rw.cmd.isOneOf(CSR.S, CSR.C, CSR.W)
 
-  performanceCounters.buildDecode()
-  
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
-  when (csr_wen) {
-    when (decoded_addr(CSRs.mstatus)) {
-      val new_mstatus = new MStatus().fromBits(wdata)
-      reg_mstatus.mie := new_mstatus.mie
-      reg_mstatus.mpie := new_mstatus.mpie
 
-      if (usingUser) {
-        reg_mstatus.mprv := new_mstatus.mprv
-        reg_mstatus.mpp := legalizePrivilege(new_mstatus.mpp)
-        if (usingSupervisor) {
-          reg_mstatus.spp := new_mstatus.spp
-          reg_mstatus.spie := new_mstatus.spie
-          reg_mstatus.sie := new_mstatus.sie
-          reg_mstatus.tw := new_mstatus.tw
-          reg_mstatus.tsr := new_mstatus.tsr
-        }
-        if (usingVM) {
-          reg_mstatus.mxr := new_mstatus.mxr
-          reg_mstatus.sum := new_mstatus.sum
-          reg_mstatus.tvm := new_mstatus.tvm
-        }
-      }
-
-      if (usingSupervisor || usingFPU) reg_mstatus.fs := formFS(new_mstatus.fs)
-      reg_mstatus.vs := formVS(new_mstatus.vs)
-    }
-    when (decoded_addr(CSRs.misa)) {
-      val mask = UInt(isaStringToMask(isaMaskString), xLen)
-      val f = wdata('f' - 'a')
-      // suppress write if it would cause the next fetch to be misaligned
-      when (!usingCompressed || !io.pc(1) || wdata('c' - 'a')) {
-        if (coreParams.misaWritable)
-          reg_misa := ~(~wdata | (!f << ('d' - 'a'))) & mask | reg_misa & ~mask
-      }
-    }
-    when (decoded_addr(CSRs.mip)) {
-      // MIP should be modified based on the value in reg_mip, not the value
-      // in read_mip, since read_mip.seip is the OR of reg_mip.seip and
-      // io.interrupts.seip.  We don't want the value on the PLIC line to
-      // inadvertently be OR'd into read_mip.seip.
-      val new_mip = readModifyWriteCSR(io.rw.cmd, reg_mip.asUInt, io.rw.wdata).asTypeOf(new MIP)
-      if (usingSupervisor) {
-        reg_mip.ssip := new_mip.ssip
-        reg_mip.stip := new_mip.stip
-        reg_mip.seip := new_mip.seip
-      }
-    }
-    when (decoded_addr(CSRs.mie))      { reg_mie := wdata & supported_interrupts }
-    when (decoded_addr(CSRs.mepc))     { reg_mepc := formEPC(wdata) }
-    when (decoded_addr(CSRs.mscratch)) { reg_mscratch := wdata }
-    if (mtvecWritable)
-      when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata }
-    when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & UInt((BigInt(1) << (xLen-1)) + (BigInt(1) << whichInterrupt.getWidth) - 1) }
-    when (decoded_addr(CSRs.mtval))    { reg_mtval := wdata(vaddrBitsExtended-1,0) }
-
-    if (usingNMI) {
-      val new_mnstatus = new MStatus().fromBits(wdata)
-      when (decoded_addr(CSRs.mnscratch)) { reg_mnscratch := wdata }
-      when (decoded_addr(CSRs.mnepc))     { reg_mnepc := formEPC(wdata) }
-      when (decoded_addr(CSRs.mncause))   { reg_mncause := wdata & UInt((BigInt(1) << (xLen-1)) + BigInt(3)) }
-      when (decoded_addr(CSRs.mnstatus))  { reg_mnstatus.mpp := legalizePrivilege(new_mnstatus.mpp) }
-    }
-
-    if (usingFPU) {
-      when (decoded_addr(CSRs.fflags)) { set_fs_dirty := true; reg_fflags := wdata }
-      when (decoded_addr(CSRs.frm))    { set_fs_dirty := true; reg_frm := wdata }
-      when (decoded_addr(CSRs.fcsr)) {
-        set_fs_dirty := true
-        reg_fflags := wdata
-        reg_frm := wdata >> reg_fflags.getWidth
-      }
-    }
-    if (usingDebug) {
-      when (decoded_addr(CSRs.dcsr)) {
-        val new_dcsr = new DCSR().fromBits(wdata)
-        reg_dcsr.step := new_dcsr.step
-        reg_dcsr.ebreakm := new_dcsr.ebreakm
-        if (usingSupervisor) reg_dcsr.ebreaks := new_dcsr.ebreaks
-        if (usingUser) reg_dcsr.ebreaku := new_dcsr.ebreaku
-        if (usingUser) reg_dcsr.prv := legalizePrivilege(new_dcsr.prv)
-      }
-      when (decoded_addr(CSRs.dpc))      { reg_dpc := formEPC(wdata) }
-      when (decoded_addr(CSRs.dscratch)) { reg_dscratch := wdata }
-      reg_dscratch1.foreach { r =>
-        when (decoded_addr(CSRs.dscratch1)) { r := wdata }
-      }
-    }
-    if (usingSupervisor) {
-      when (decoded_addr(CSRs.sstatus)) {
-        val new_sstatus = new MStatus().fromBits(wdata)
-        reg_mstatus.sie := new_sstatus.sie
-        reg_mstatus.spie := new_sstatus.spie
-        reg_mstatus.spp := new_sstatus.spp
-        reg_mstatus.fs := formFS(new_sstatus.fs)
-        reg_mstatus.vs := formVS(new_sstatus.vs)
-        if (usingVM) {
-          reg_mstatus.mxr := new_sstatus.mxr
-          reg_mstatus.sum := new_sstatus.sum
-        }
-      }
-      when (decoded_addr(CSRs.sip)) {
-        val new_sip = new MIP().fromBits((read_mip & ~read_mideleg) | (wdata & read_mideleg))
-        reg_mip.ssip := new_sip.ssip
-      }
-      when (decoded_addr(CSRs.satp)) {
-        if (usingVM) {
-          val new_satp = new PTBR().fromBits(wdata)
-          val valid_modes = 0 +: (minPgLevels to pgLevels).map(new_satp.pgLevelsToMode(_))
-          when (new_satp.mode.isOneOf(valid_modes.map(_.U))) {
-            reg_satp.mode := new_satp.mode & valid_modes.reduce(_|_)
-            reg_satp.ppn := new_satp.ppn(ppnBits-1,0)
-            if (asIdBits > 0) reg_satp.asid := new_satp.asid(asIdBits-1,0)
-          }
-        }
-      }
-      when (decoded_addr(CSRs.sie))      { reg_mie := (reg_mie & ~read_mideleg) | (wdata & read_mideleg) }
-      when (decoded_addr(CSRs.sscratch)) { reg_sscratch := wdata }
-      when (decoded_addr(CSRs.sepc))     { reg_sepc := formEPC(wdata) }
-      when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata }
-      when (decoded_addr(CSRs.scause))   { reg_scause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
-      when (decoded_addr(CSRs.stval))    { reg_stval := wdata(vaddrBitsExtended-1,0) }
-      when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata }
-      when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata }
-    }
-    if (nBreakpoints > 0) {
-      when (decoded_addr(CSRs.tselect)) { reg_tselect := wdata }
-
-      for ((bp, i) <- reg_bp.zipWithIndex) {
-        when (i === reg_tselect && (!bp.control.dmode || reg_debug)) {
-          when (decoded_addr(CSRs.tdata2)) { bp.address := wdata }
-          when (decoded_addr(CSRs.tdata3)) {
-            if (coreParams.mcontextWidth > 0) {
-              bp.textra.mselect := wdata(bp.textra.mselectPos)
-              bp.textra.mvalue  := wdata >> bp.textra.mvaluePos
-            }
-            if (coreParams.scontextWidth > 0) {
-              bp.textra.sselect := wdata(bp.textra.sselectPos)
-              bp.textra.svalue  := wdata >> bp.textra.svaluePos
-            }
-          }
-          when (decoded_addr(CSRs.tdata1)) {
-            bp.control := wdata.asTypeOf(bp.control)
-
-            val prevChain = if (i == 0) false.B else reg_bp(i-1).control.chain
-            val prevDMode = if (i == 0) false.B else reg_bp(i-1).control.dmode
-            val nextChain = if (i >= nBreakpoints-1) true.B else reg_bp(i+1).control.chain
-            val nextDMode = if (i >= nBreakpoints-1) true.B else reg_bp(i+1).control.dmode
-            val newBPC = readModifyWriteCSR(io.rw.cmd, bp.control.asUInt, io.rw.wdata).asTypeOf(bp.control)
-            val dMode = newBPC.dmode && reg_debug && (prevDMode || !prevChain)
-            bp.control.dmode := dMode
-            when (dMode || (newBPC.action > 1.U)) { bp.control.action := newBPC.action }.otherwise { bp.control.action := 0.U }
-            bp.control.chain := newBPC.chain && !(prevChain || nextChain) && (dMode || !nextDMode)
-          }
-        }
-      }
-    }
-    reg_mcontext.foreach { r => when (decoded_addr(CSRs.mcontext)) { r := wdata }}
-    reg_scontext.foreach { r => when (decoded_addr(CSRs.scontext)) { r := wdata }}
-    if (reg_pmp.nonEmpty) for (((pmp, next), i) <- (reg_pmp zip (reg_pmp.tail :+ reg_pmp.last)) zipWithIndex) {
-      require(xLen % pmp.cfg.getWidth == 0)
-      when (decoded_addr(CSRs.pmpcfg0 + pmpCfgIndex(i)) && !pmp.cfgLocked) {
-        val newCfg = new PMPConfig().fromBits(wdata >> ((i * pmp.cfg.getWidth) % xLen))
-        pmp.cfg := newCfg
-        // disallow unreadable but writable PMPs
-        pmp.cfg.w := newCfg.w && newCfg.r
-        // can't select a=NA4 with coarse-grained PMPs
-        if (pmpGranularity.log2 > PMP.lgAlign)
-          pmp.cfg.a := Cat(newCfg.a(1), newCfg.a.orR)
-      }
-      when (decoded_addr(CSRs.pmpaddr0 + i) && !pmp.addrLocked(next)) {
-        pmp.addr := wdata
-      }
-    }
-    for ((io, csr, reg) <- (io.customCSRs, customCSRs, reg_custom).zipped) {
-      val mask = csr.mask.U(xLen.W)
-      when (decoded_addr(csr.id)) {
-        reg := (wdata & mask) | (reg & ~mask)
-        io.wen := true
-      }
-    }
-    if (usingVector) {
-      when (decoded_addr(CSRs.vstart)) { set_vs_dirty := true; reg_vstart.get := wdata }
-      when (decoded_addr(CSRs.vxrm))   { set_vs_dirty := true; reg_vxrm.get := wdata }
-      when (decoded_addr(CSRs.vxsat))  { set_vs_dirty := true; reg_vxsat.get := wdata }
-      when (decoded_addr(CSRs.vcsr))   {
-        set_vs_dirty := true
-        reg_vxsat.get := wdata
-        reg_vxrm.get := wdata >> 1
-      }
-    }
-  }
+  performanceCounters.buildDecode()
+  buildDecode()
 
   io.vector.map { vio =>
     when (vio.set_vconfig.valid) {
@@ -1084,6 +851,255 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     t.cause := cause
     t.interrupt := cause(xLen-1)
     t.tval := io.tval
+  }
+
+  def buildMappings() = {
+    read_mapping += CSRs.tselect -> reg_tselect
+    read_mapping += CSRs.tdata1 -> reg_bp(reg_tselect).control.asUInt
+    read_mapping += CSRs.tdata2 -> reg_bp(reg_tselect).address.sextTo(xLen)
+    read_mapping += CSRs.tdata3 -> reg_bp(reg_tselect).textra.asUInt
+    read_mapping += CSRs.misa -> reg_misa
+    read_mapping += CSRs.mstatus -> read_mstatus
+    read_mapping += CSRs.mtvec -> read_mtvec
+    read_mapping += CSRs.mip -> read_mip
+    read_mapping += CSRs.mie -> reg_mie
+    read_mapping += CSRs.mscratch -> reg_mscratch
+    read_mapping += CSRs.mepc -> readEPC(reg_mepc).sextTo(xLen)
+    read_mapping += CSRs.mtval -> reg_mtval.sextTo(xLen)
+    read_mapping += CSRs.mcause -> reg_mcause
+    read_mapping += CSRs.mhartid -> io.hartid
+
+    read_mapping ++= debug_csrs
+    read_mapping ++= nmi_csrs
+    read_mapping ++= context_csrs
+    read_mapping ++= fp_csrs
+    read_mapping ++= vector_csrs
+
+    if(usingSupervisor) {
+      val read_sstatus = Wire(init = 0.U.asTypeOf(new MStatus))
+      val read_sip = read_mip & read_mideleg
+      val read_sie = reg_mie & read_mideleg
+
+      read_mapping += CSRs.sstatus -> (read_sstatus.asUInt())(xLen-1,0)
+      read_mapping += CSRs.sip -> read_sip.asUInt
+      read_mapping += CSRs.sie -> read_sie.asUInt
+      read_mapping += CSRs.sscratch -> reg_sscratch
+      read_mapping += CSRs.scause -> reg_scause
+      read_mapping += CSRs.stval -> reg_stval.sextTo(xLen)
+      read_mapping += CSRs.satp -> reg_satp.asUInt
+      read_mapping += CSRs.sepc -> readEPC(reg_sepc).sextTo(xLen)
+      read_mapping += CSRs.stvec -> read_stvec
+      read_mapping += CSRs.mideleg -> read_mideleg
+      read_mapping += CSRs.medeleg -> read_medeleg
+    }
+
+    if (reg_pmp.nonEmpty) {
+      require(reg_pmp.size <= CSR.maxPMPs)
+      val read_pmp = reg_pmp.padTo(CSR.maxPMPs, 0.U.asTypeOf(new PMP))
+      for (i <- 0 until read_pmp.size by pmpCfgPerCSR)
+        read_mapping += (CSRs.pmpcfg0 + pmpCfgIndex(i)) -> read_pmp.map(_.cfg).slice(i, i + pmpCfgPerCSR).asUInt
+      for ((pmp, i) <- read_pmp zipWithIndex)
+        read_mapping += (CSRs.pmpaddr0 + i) -> pmp.readAddr
+    }
+
+    (customCSRs zip reg_custom).map { case (csr,reg) =>
+      require(!read_mapping.contains(csr.id))
+      read_mapping += csr.id -> reg
+    }
+  }
+
+  def buildDecode() = {
+    when (csr_wen) {
+      when (decoded_addr(CSRs.mstatus)) {
+        val new_mstatus = new MStatus().fromBits(wdata)
+        reg_mstatus.mie := new_mstatus.mie
+        reg_mstatus.mpie := new_mstatus.mpie
+
+        if (usingUser) {
+          reg_mstatus.mprv := new_mstatus.mprv
+          reg_mstatus.mpp := legalizePrivilege(new_mstatus.mpp)
+          if (usingSupervisor) {
+            reg_mstatus.spp := new_mstatus.spp
+            reg_mstatus.spie := new_mstatus.spie
+            reg_mstatus.sie := new_mstatus.sie
+            reg_mstatus.tw := new_mstatus.tw
+            reg_mstatus.tsr := new_mstatus.tsr
+          }
+          if (usingVM) {
+            reg_mstatus.mxr := new_mstatus.mxr
+            reg_mstatus.sum := new_mstatus.sum
+            reg_mstatus.tvm := new_mstatus.tvm
+          }
+        }
+
+        if (usingSupervisor || usingFPU) reg_mstatus.fs := formFS(new_mstatus.fs)
+        reg_mstatus.vs := formVS(new_mstatus.vs)
+      }
+      when (decoded_addr(CSRs.misa)) {
+        val mask = UInt(isaStringToMask(isaMaskString), xLen)
+        val f = wdata('f' - 'a')
+        // suppress write if it would cause the next fetch to be misaligned
+        when (!usingCompressed || !io.pc(1) || wdata('c' - 'a')) {
+          if (coreParams.misaWritable)
+            reg_misa := ~(~wdata | (!f << ('d' - 'a'))) & mask | reg_misa & ~mask
+        }
+      }
+      when (decoded_addr(CSRs.mip)) {
+        // MIP should be modified based on the value in reg_mip, not the value
+        // in read_mip, since read_mip.seip is the OR of reg_mip.seip and
+        // io.interrupts.seip.  We don't want the value on the PLIC line to
+        // inadvertently be OR'd into read_mip.seip.
+        val new_mip = readModifyWriteCSR(io.rw.cmd, reg_mip.asUInt, io.rw.wdata).asTypeOf(new MIP)
+        if (usingSupervisor) {
+          reg_mip.ssip := new_mip.ssip
+          reg_mip.stip := new_mip.stip
+          reg_mip.seip := new_mip.seip
+        }
+      }
+      when (decoded_addr(CSRs.mie))      { reg_mie := wdata & supported_interrupts }
+      when (decoded_addr(CSRs.mepc))     { reg_mepc := formEPC(wdata) }
+      when (decoded_addr(CSRs.mscratch)) { reg_mscratch := wdata }
+      if (mtvecWritable)
+        when (decoded_addr(CSRs.mtvec))  { reg_mtvec := wdata }
+      when (decoded_addr(CSRs.mcause))   { reg_mcause := wdata & UInt((BigInt(1) << (xLen-1)) + (BigInt(1) << whichInterrupt.getWidth) - 1) }
+      when (decoded_addr(CSRs.mtval))    { reg_mtval := wdata(vaddrBitsExtended-1,0) }
+
+      if (usingNMI) {
+        val new_mnstatus = new MStatus().fromBits(wdata)
+        when (decoded_addr(CSRs.mnscratch)) { reg_mnscratch := wdata }
+        when (decoded_addr(CSRs.mnepc))     { reg_mnepc := formEPC(wdata) }
+        when (decoded_addr(CSRs.mncause))   { reg_mncause := wdata & UInt((BigInt(1) << (xLen-1)) + BigInt(3)) }
+        when (decoded_addr(CSRs.mnstatus))  { reg_mnstatus.mpp := legalizePrivilege(new_mnstatus.mpp) }
+      }
+
+      if (usingFPU) {
+        when (decoded_addr(CSRs.fflags)) { set_fs_dirty := true; reg_fflags := wdata }
+        when (decoded_addr(CSRs.frm))    { set_fs_dirty := true; reg_frm := wdata }
+        when (decoded_addr(CSRs.fcsr)) {
+          set_fs_dirty := true
+          reg_fflags := wdata
+          reg_frm := wdata >> reg_fflags.getWidth
+        }
+      }
+      if (usingDebug) {
+        when (decoded_addr(CSRs.dcsr)) {
+          val new_dcsr = new DCSR().fromBits(wdata)
+          reg_dcsr.step := new_dcsr.step
+          reg_dcsr.ebreakm := new_dcsr.ebreakm
+          if (usingSupervisor) reg_dcsr.ebreaks := new_dcsr.ebreaks
+          if (usingUser) reg_dcsr.ebreaku := new_dcsr.ebreaku
+          if (usingUser) reg_dcsr.prv := legalizePrivilege(new_dcsr.prv)
+        }
+        when (decoded_addr(CSRs.dpc))      { reg_dpc := formEPC(wdata) }
+        when (decoded_addr(CSRs.dscratch)) { reg_dscratch := wdata }
+        reg_dscratch1.foreach { r =>
+          when (decoded_addr(CSRs.dscratch1)) { r := wdata }
+        }
+      }
+      if (usingSupervisor) {
+        when (decoded_addr(CSRs.sstatus)) {
+          val new_sstatus = new MStatus().fromBits(wdata)
+          reg_mstatus.sie := new_sstatus.sie
+          reg_mstatus.spie := new_sstatus.spie
+          reg_mstatus.spp := new_sstatus.spp
+          reg_mstatus.fs := formFS(new_sstatus.fs)
+          reg_mstatus.vs := formVS(new_sstatus.vs)
+          if (usingVM) {
+            reg_mstatus.mxr := new_sstatus.mxr
+            reg_mstatus.sum := new_sstatus.sum
+          }
+        }
+        when (decoded_addr(CSRs.sip)) {
+          val new_sip = new MIP().fromBits((read_mip & ~read_mideleg) | (wdata & read_mideleg))
+          reg_mip.ssip := new_sip.ssip
+        }
+        when (decoded_addr(CSRs.satp)) {
+          if (usingVM) {
+            val new_satp = new PTBR().fromBits(wdata)
+            val valid_modes = 0 +: (minPgLevels to pgLevels).map(new_satp.pgLevelsToMode(_))
+            when (new_satp.mode.isOneOf(valid_modes.map(_.U))) {
+              reg_satp.mode := new_satp.mode & valid_modes.reduce(_|_)
+              reg_satp.ppn := new_satp.ppn(ppnBits-1,0)
+              if (asIdBits > 0) reg_satp.asid := new_satp.asid(asIdBits-1,0)
+            }
+          }
+        }
+        when (decoded_addr(CSRs.sie))      { reg_mie := (reg_mie & ~read_mideleg) | (wdata & read_mideleg) }
+        when (decoded_addr(CSRs.sscratch)) { reg_sscratch := wdata }
+        when (decoded_addr(CSRs.sepc))     { reg_sepc := formEPC(wdata) }
+        when (decoded_addr(CSRs.stvec))    { reg_stvec := wdata }
+        when (decoded_addr(CSRs.scause))   { reg_scause := wdata & UInt((BigInt(1) << (xLen-1)) + 31) /* only implement 5 LSBs and MSB */ }
+        when (decoded_addr(CSRs.stval))    { reg_stval := wdata(vaddrBitsExtended-1,0) }
+        when (decoded_addr(CSRs.mideleg))  { reg_mideleg := wdata }
+        when (decoded_addr(CSRs.medeleg))  { reg_medeleg := wdata }
+      }
+      if (nBreakpoints > 0) {
+        when (decoded_addr(CSRs.tselect)) { reg_tselect := wdata }
+
+        for ((bp, i) <- reg_bp.zipWithIndex) {
+          when (i === reg_tselect && (!bp.control.dmode || reg_debug)) {
+            when (decoded_addr(CSRs.tdata2)) { bp.address := wdata }
+            when (decoded_addr(CSRs.tdata3)) {
+              if (coreParams.mcontextWidth > 0) {
+                bp.textra.mselect := wdata(bp.textra.mselectPos)
+                bp.textra.mvalue  := wdata >> bp.textra.mvaluePos
+              }
+              if (coreParams.scontextWidth > 0) {
+                bp.textra.sselect := wdata(bp.textra.sselectPos)
+                bp.textra.svalue  := wdata >> bp.textra.svaluePos
+              }
+            }
+            when (decoded_addr(CSRs.tdata1)) {
+              bp.control := wdata.asTypeOf(bp.control)
+
+              val prevChain = if (i == 0) false.B else reg_bp(i-1).control.chain
+              val prevDMode = if (i == 0) false.B else reg_bp(i-1).control.dmode
+              val nextChain = if (i >= nBreakpoints-1) true.B else reg_bp(i+1).control.chain
+              val nextDMode = if (i >= nBreakpoints-1) true.B else reg_bp(i+1).control.dmode
+              val newBPC = readModifyWriteCSR(io.rw.cmd, bp.control.asUInt, io.rw.wdata).asTypeOf(bp.control)
+              val dMode = newBPC.dmode && reg_debug && (prevDMode || !prevChain)
+              bp.control.dmode := dMode
+              when (dMode || (newBPC.action > 1.U)) { bp.control.action := newBPC.action }.otherwise { bp.control.action := 0.U }
+              bp.control.chain := newBPC.chain && !(prevChain || nextChain) && (dMode || !nextDMode)
+            }
+          }
+        }
+      }
+      reg_mcontext.foreach { r => when (decoded_addr(CSRs.mcontext)) { r := wdata }}
+      reg_scontext.foreach { r => when (decoded_addr(CSRs.scontext)) { r := wdata }}
+      if (reg_pmp.nonEmpty) for (((pmp, next), i) <- (reg_pmp zip (reg_pmp.tail :+ reg_pmp.last)) zipWithIndex) {
+        require(xLen % pmp.cfg.getWidth == 0)
+        when (decoded_addr(CSRs.pmpcfg0 + pmpCfgIndex(i)) && !pmp.cfgLocked) {
+          val newCfg = new PMPConfig().fromBits(wdata >> ((i * pmp.cfg.getWidth) % xLen))
+          pmp.cfg := newCfg
+          // disallow unreadable but writable PMPs
+          pmp.cfg.w := newCfg.w && newCfg.r
+          // can't select a=NA4 with coarse-grained PMPs
+          if (pmpGranularity.log2 > PMP.lgAlign)
+            pmp.cfg.a := Cat(newCfg.a(1), newCfg.a.orR)
+        }
+        when (decoded_addr(CSRs.pmpaddr0 + i) && !pmp.addrLocked(next)) {
+          pmp.addr := wdata
+        }
+      }
+      for ((io, csr, reg) <- (io.customCSRs, customCSRs, reg_custom).zipped) {
+        val mask = csr.mask.U(xLen.W)
+        when (decoded_addr(csr.id)) {
+          reg := (wdata & mask) | (reg & ~mask)
+          io.wen := true
+        }
+      }
+      if (usingVector) {
+        when (decoded_addr(CSRs.vstart)) { set_vs_dirty := true; reg_vstart.get := wdata }
+        when (decoded_addr(CSRs.vxrm))   { set_vs_dirty := true; reg_vxrm.get := wdata }
+        when (decoded_addr(CSRs.vxsat))  { set_vs_dirty := true; reg_vxsat.get := wdata }
+        when (decoded_addr(CSRs.vcsr))   {
+          set_vs_dirty := true
+          reg_vxsat.get := wdata
+          reg_vxrm.get := wdata >> 1
+        }
+      }
+    }
   }
 
   def chooseInterrupt(masksIn: Seq[UInt]): (Bool, UInt) = {
