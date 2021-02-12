@@ -146,7 +146,10 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(Seq()),
   }
 }
 
-class EventSet(val gate: (UInt, UInt) => Bool, val events: Seq[(String, () => Bool)]) {
+case class Event(name: String, signal: () => Bool, offset: Int)
+
+class EventSet(val gate: (UInt, UInt) => Bool) {
+  val events = ArrayBuffer[Event]()
   def size = events.size
   val hits = Wire(Vec(size, Bool()))
   def check(mask: UInt) = {
@@ -161,6 +164,15 @@ class EventSet(val gate: (UInt, UInt) => Bool, val events: Seq[(String, () => Bo
     events.zipWithIndex.foreach {
       case ((name, func), i) => cover(gate((1.U << i), (func() << i)), name)
     }
+  }
+  def addEvent(e: Event) {
+    events.foreach {
+      case (name, signal, offset) => {
+        if (e.name == name) throw(e)
+        if (e.offset == offset) throw(e)
+      }
+    }
+    events += e
   }
 }
 
