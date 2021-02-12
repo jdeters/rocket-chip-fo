@@ -10,6 +10,7 @@ import freechips.rocketchip.util.property._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.config.Parameters
 import chisel3.{withClock}
+import scala.collection.mutable.ArrayBuffer
 
 class PerfCounterIO(implicit p: Parameters) extends CoreBundle
     with HasCoreParameters {
@@ -148,32 +149,33 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(Seq()),
 
 case class Event(name: String, signal: () => Bool, offset: Int)
 
-class EventSet(val gate: (UInt, UInt) => Bool) {
+class EventSet(val gate: (UInt, UInt) => Bool, numEvents: Int) {
   val events = ArrayBuffer[Event]()
-  def size = events.size
-  val hits = Wire(Vec(size, Bool()))
+  val hits = Wire(Vec(numEvents, Bool()))
   def check(mask: UInt) = {
-    hits := events.map(_._2())
+    hits := events.map(_.signal())
     gate(mask, hits.asUInt)
   }
   def dump(): Unit = {
-    for (((name, _), i) <- events.zipWithIndex)
-      when (check(1.U << i)) { printf(s"Event $name\n") }
+    for (e <- events)
+      when (check(1.U << e.offset)) { printf(s"Event $e.name\n") }
   }
-  def withCovers: Unit = {
-    events.zipWithIndex.foreach {
-      case ((name, func), i) => cover(gate((1.U << i), (func() << i)), name)
-    }
+  def withCovers: Unit = events.foreach {
+    e => cover(gate((1.U << e.offset), (e.signal() << e.offset)), e.name)
   }
-  def addEvent(e: Event) {
+
+  def addEvent(name: String, signal: () => Bool, offset: Int) {
+    val newEvent = new Event(name, signal, offset)
     events.foreach {
-      case (name, signal, offset) => {
-        if (e.name == name) throw(e)
-        if (e.offset == offset) throw(e)
+      e => {
+        if (newEvent.name == e.name) throw new Exception("Event name " + e.name + " is already used.")
+        if (newEvent.offset == e.offset) throw new Exception("Event " + newEvent.name + " offset already used.")
       }
     }
-    events += e
+    events += newEvent
   }
+
+  def size() = events.size
 }
 
 class EventSets(val eventSets: Seq[EventSet]) {
