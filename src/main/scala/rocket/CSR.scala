@@ -517,7 +517,9 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
   }
 
   val read_mapping = LinkedHashMap[Int,Bits]()
+  val performanceCounters = new PerformanceCounters(perfEventSets, this)
   buildMappings()
+  performanceCounters.buildMappings()
 
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
   Seq(CSRs.mimpid, CSRs.marchid, CSRs.mvendorid).foreach(id => read_mapping.getOrElseUpdate(id, 0.U))
@@ -555,12 +557,14 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     io_dec.vector_illegal := io.status.vs === 0 || !reg_misa('v'-'a')
     io_dec.fp_csr := decodeFast(fp_csrs.keys.toList)
     io_dec.rocc_illegal := io.status.xs === 0 || !reg_misa('x'-'a')
-    io_dec.read_illegal := reg_mstatus.prv < io_dec.csr(9,8) ||
+    when(reg_mstatus.prv < io_dec.csr(9,8) ||
       !decodeAny(read_mapping) ||
       io_dec.csr === CSRs.satp && !allow_sfence_vma ||
       decodeFast(debug_csrs.keys.toList) && !reg_debug ||
       decodeFast(vector_csrs.keys.toList) && io_dec.vector_illegal ||
-      io_dec.fp_csr && io_dec.fp_illegal
+      io_dec.fp_csr && io_dec.fp_illegal) {
+        io_dec.read_illegal := true.B
+      }
     io_dec.write_illegal := io_dec.csr(11,10).andR
     io_dec.write_flush := !(io_dec.csr >= CSRs.mscratch && io_dec.csr <= CSRs.mtval || io_dec.csr >= CSRs.sscratch && io_dec.csr <= CSRs.stval)
     io_dec.system_illegal := reg_mstatus.prv < io_dec.csr(9,8) ||
@@ -781,6 +785,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
 
   buildDecode()
+  performanceCounters.buildDecode()
 
   io.vector.map { vio =>
     when (vio.set_vconfig.valid) {

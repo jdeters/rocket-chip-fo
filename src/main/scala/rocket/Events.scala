@@ -115,14 +115,16 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(Seq()),
       }
     }
 
-    /* for (io_dec <- csrFile.io.decode) {
+    for (io_dec <- csrFile.io.decode) {
       val counter_addr = io_dec.csr(log2Ceil(read_mcounteren.getWidth)-1, 0)
       val allow_counter = (csrFile.reg_mstatus.prv > PRV.S || read_mcounteren(counter_addr)) &&
         (!csrFile.usingSupervisor || csrFile.reg_mstatus.prv >= PRV.S || read_scounteren(counter_addr))
 
-      io_dec.read_illegal := (io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr)
-      || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr)) && !allow_counter
-    } */
+      when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
+        && !allow_counter) {
+        io_dec.read_illegal := true.B
+      }
+    }
 
     if (csrFile.usingSupervisor) {
       when (csrFile.decoded_addr(CSRs.scounteren)) { reg_scounteren := csrFile.wdata }
