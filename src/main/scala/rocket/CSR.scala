@@ -517,9 +517,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
   }
 
   val read_mapping = LinkedHashMap[Int,Bits]()
-  val performanceCounters = new PerformanceCounters(perfEventSets, this)
   buildMappings()
-  performanceCounters.buildMappings()
 
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
   Seq(CSRs.mimpid, CSRs.marchid, CSRs.mvendorid).foreach(id => read_mapping.getOrElseUpdate(id, 0.U))
@@ -540,7 +538,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
     usingVM.option(              SFENCE_VMA->  List(N,N,N,N,N,Y))
 
   val insn_call :: insn_break :: insn_ret :: insn_cease :: insn_wfi :: insn_sfence :: Nil =
-    DecodeLogic(io.rw.addr << 20, decode_table(0)._2.map(x=>X), decode_table).map(system_insn && _.asBool)
+    DecodeLogic(io.rw.addr << 20, decode_table(0)._2.map(x=>X), decode_table).map(dl => system_insn && dl.asBool)
 
   //NOTE: Careful with this
   for (io_dec <- io.decode) {
@@ -782,7 +780,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
 
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
 
-  performanceCounters.buildDecode()
   buildDecode()
 
   io.vector.map { vio =>

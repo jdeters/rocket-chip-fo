@@ -18,6 +18,7 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= Seq("org.scala-lang" % "scala-reflect" % scalaVersion.value),
   libraryDependencies ++= Seq("org.json4s" %% "json4s-jackson" % "3.6.1"),
   libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % "3.2.0" % "test"),
+  libraryDependencies ++= Seq("org.scalameta" %% "scalameta" % "4.3.20"),
   addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full),
   resolvers ++= Seq(
     Resolver.sonatypeRepo("snapshots"),
@@ -63,6 +64,11 @@ lazy val chiselLib = "edu.berkeley.cs" %% "chisel3" % chiselVersion
 //   keeping scalaVersion in sync with chisel3 to the minor version
 lazy val chiselPluginLib = "edu.berkeley.cs" % "chisel3-plugin" % chiselVersion cross CrossVersion.full
 
+//JD: I want this to run first
+lazy val `chiselaspects` = (project in file("aspects/"))
+  .settings(mainClass in (Compile, run) := Some("chiselaspects.AspectMachine"))
+  .settings(commonSettings)
+
 lazy val `api-config-chipsalliance` = (project in file("api-config-chipsalliance/build-rules/sbt"))
   .settings(commonSettings)
   .settings(publishArtifact := false)
@@ -73,10 +79,15 @@ lazy val hardfloat  = (project in file("hardfloat"))
   .settings(publishArtifact := false)
 lazy val `rocket-macros` = (project in file("macros")).settings(commonSettings)
   .settings(publishArtifact := false)
+
+//JD: I want this to run second
 lazy val rocketchip = (project in file("."))
   .sourceDependency(chiselRef, chiselLib)
   .settings(addCompilerPlugin(chiselPluginLib))
   .settings(commonSettings, chipSettings)
+  .aggregate(chiselaspects)
+  .dependsOn(chiselaspects)
+  .dependsOn(chiselaspects)
   .dependsOn(`api-config-chipsalliance`)
   .dependsOn(hardfloat)
   .dependsOn(`rocket-macros`)
@@ -94,6 +105,8 @@ lazy val rocketchip = (project in file("."))
 lazy val addons = settingKey[Seq[String]]("list of addons used for this build")
 lazy val make = inputKey[Unit]("trigger backend-specific makefile command")
 val setMake = NotSpace ~ ( Space ~> NotSpace )
+
+run in Compile := (run in Compile in chiselaspects)
 
 lazy val chipSettings = Seq(
   addons := {
