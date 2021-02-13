@@ -18,19 +18,7 @@ class PerfCounterIO(implicit p: Parameters) extends CoreBundle
   val inc = UInt(INPUT, log2Ceil(1+retireWidth))
 }
 
-class PerfModuleIO(implicit p: Parameters) extends CoreBundle with HasCoreParameters {
-  val retire = UInt(INPUT, log2Up(1+retireWidth))
-  val ungated_clock = Clock().asInput
-  val csr_stall = Input(Bool())
-  val counters = Vec(nPerfCounters, new PerfCounterIO)
-  val decode = Vec(decodeWidth, new CSRDecodeIO)
-  val csr_wen = Input(Bool())
-  val wdata = Bits(INPUT, xLen)
-  val inhibit_cycle = Output(Bool())
-  val time = UInt(OUTPUT, xLen)
-}
-
-class PerformanceCounters(perfEventSets: EventSets = new EventSets(Seq()),
+class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
   csrFile: CSRFile) {
 
   val firstCtr = CSRs.cycle
@@ -178,7 +166,9 @@ class EventSet(val gate: (UInt, UInt) => Bool, numEvents: Int) {
   def size() = events.size
 }
 
-class EventSets(val eventSets: Seq[EventSet]) {
+class EventSets() {
+  val eventSets = ArrayBuffer[EventSet]()
+
   def maskEventSelector(eventSel: UInt): UInt = {
     // allow full associativity between counters and event sets (for now?)
     val setMask = (BigInt(1) << eventSetIdBits) - 1
@@ -194,6 +184,7 @@ class EventSets(val eventSets: Seq[EventSet]) {
 
   def evaluate(eventSel: UInt): Bool = {
     val (set, mask) = decode(eventSel)
+    //the set ID is determined by the order in which it appears in eventSets
     val sets = for (e <- eventSets) yield {
       require(e.hits.getWidth <= mask.getWidth, s"too many events ${e.hits.getWidth} wider than mask ${mask.getWidth}")
       e check mask
@@ -201,12 +192,19 @@ class EventSets(val eventSets: Seq[EventSet]) {
     sets(set)
   }
 
+  def addEventSet(newEventSet: EventSet) {
+    eventSets += newEventSet
+  }
+
   def cover() = eventSets.foreach { _ withCovers }
 
-  private def eventSetIdBits = log2Ceil(eventSets.size)
+  private def eventSetIdBits = {
+    val bits = log2Ceil(eventSets.size)
+    //require(bits <= maxEventSetIdBits)
+    bits
+  }
   private def maxEventSetIdBits = 8
 
-  require(eventSetIdBits <= maxEventSetIdBits)
 }
 
 class SuperscalarEventSets(val eventSets: Seq[(Seq[EventSet], (UInt, UInt) => UInt)]) {
@@ -222,7 +220,8 @@ class SuperscalarEventSets(val eventSets: Seq[(Seq[EventSet], (UInt, UInt) => UI
     zeroPadded(set)
   }
 
-  def toScalarEventSets: EventSets = new EventSets(eventSets.map(_._1.head))
+  //TODO: Fix this
+  def toScalarEventSets: EventSets = new EventSets()
 
   def cover(): Unit = { eventSets.foreach(_._1.foreach(_.withCovers)) }
 

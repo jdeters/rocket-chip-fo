@@ -124,6 +124,8 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   def pipelineIDToWB[T <: Data](x: T): T =
     RegEnable(RegEnable(RegEnable(x, !ctrl_killd), ex_pc_valid), mem_pc_valid)
 
+  val perfEvents = new EventSets()
+
   val instEvents = new EventSet((mask, hits) => Mux(wb_xcpt, mask(0), wb_valid &&
     pipelineIDToWB((mask & hits).orR)), 18)
   instEvents.addEvent("exception", () => false.B, 0)
@@ -156,7 +158,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     instEvents.addEvent("fp other", () => id_ctrl.fp && !(io.fpu.dec.ldst || io.fpu.dec.fma
       || io.fpu.dec.div || io.fpu.dec.sqrt), 17)
   }
-
+  perfEvents.addEventSet(instEvents)
 
   val microEvents = new EventSet((mask, hits) => (mask & hits).orR, 11)
   microEvents.addEvent("load-use interlock", () => id_ex_hazard && ex_ctrl.mem
@@ -179,6 +181,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
     microEvents.addEvent("fp interlock", () => id_ex_hazard && ex_ctrl.fp || id_mem_hazard && mem_ctrl.fp
       || id_wb_hazard && wb_ctrl.fp || id_ctrl.fp && id_stall_fpu, 10)
   }
+  perfEvents.addEventSet(microEvents)
 
   val sysEvents = new EventSet((mask, hits) => (mask & hits).orR, 6)
   sysEvents.addEvent("I$ miss", () => io.imem.perf.acquire, 0)
@@ -187,8 +190,7 @@ class Rocket(tile: RocketTile)(implicit p: Parameters) extends CoreModule()(p)
   sysEvents.addEvent("ITLB miss", () => io.imem.perf.tlbMiss, 3)
   sysEvents.addEvent("DTLB miss", () => io.dmem.perf.tlbMiss, 4)
   sysEvents.addEvent("L2 TLB miss", () => io.ptw.perf.l2miss, 5)
-
-  val perfEvents = new EventSets(Seq(instEvents, microEvents, sysEvents))
+  perfEvents.addEventSet(sysEvents)
 
   val pipelinedMul = usingMulDiv && mulDivParams.mulUnroll == xLen
   val decode_table = {

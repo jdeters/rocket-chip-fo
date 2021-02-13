@@ -287,7 +287,7 @@ class VType(implicit p: Parameters) extends CoreBundle {
   }
 }
 
-class CSRFile(perfEventSets: EventSets = new EventSets(Seq()),
+class CSRFile(perfEventSets: EventSets = new EventSets(),
   customCSRs: Seq[CustomCSR] = Nil)(implicit p: Parameters)
     extends CoreModule()(p)
     with HasCoreParameters {
