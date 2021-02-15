@@ -563,7 +563,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
       decodeFast(debug_csrs.keys.toList) && !reg_debug ||
       decodeFast(vector_csrs.keys.toList) && io_dec.vector_illegal ||
       io_dec.fp_csr && io_dec.fp_illegal) {
-        io_dec.read_illegal := true.B
+        io_dec.read_illegal := false.B
       }
     io_dec.write_illegal := io_dec.csr(11,10).andR
     io_dec.write_flush := !(io_dec.csr >= CSRs.mscratch && io_dec.csr <= CSRs.mtval || io_dec.csr >= CSRs.sscratch && io_dec.csr <= CSRs.stval)

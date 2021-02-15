@@ -111,7 +111,7 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
 
       when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
         && !allow_counter) {
-        io_dec.read_illegal := true.B
+        io_dec.read_illegal := false.B
       }
     }
 
