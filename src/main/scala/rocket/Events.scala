@@ -122,6 +122,8 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
     if (csrFile.usingUser) {
       when (csrFile.decoded_addr(CSRs.mcounteren)) { reg_mcounteren := csrFile.wdata }
     }
+
+    perfEventSets.print()
   }
 
   private def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {
@@ -163,6 +165,10 @@ class EventSet(val gate: (UInt, UInt) => Bool, numEvents: Int) {
     events += newEvent
   }
 
+  def print() = {
+    events.foreach {e => println("Event Name: " + e.name + ", Bit Number: " + e.offset)}
+  }
+
   def size() = events.size
 }
 
@@ -198,13 +204,20 @@ class EventSets() {
 
   def cover() = eventSets.foreach { _ withCovers }
 
+  def print() = {
+    println("Configured Performance Counter Events:")
+    for((e,i) <- eventSets.zipWithIndex) {
+      println("Event Set " + i)
+      e.print
+    }
+  }
+
   private def eventSetIdBits = {
     val bits = log2Ceil(eventSets.size)
     //require(bits <= maxEventSetIdBits)
     bits
   }
   private def maxEventSetIdBits = 8
-
 }
 
 class SuperscalarEventSets(val eventSets: Seq[(Seq[EventSet], (UInt, UInt) => UInt)]) {
