@@ -517,9 +517,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
   }
 
   val read_mapping = LinkedHashMap[Int,Bits]()
-  val performanceCounters = new PerformanceCounters(perfEventSets, this)
   buildMappings()
-  performanceCounters.buildMappings()
 
   // mimpid, marchid, and mvendorid are 0 unless overridden by customCSRs
   Seq(CSRs.mimpid, CSRs.marchid, CSRs.mvendorid).foreach(id => read_mapping.getOrElseUpdate(id, 0.U))
@@ -785,7 +783,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
   io.csrw_counter := Mux(coreParams.haveBasicCounters && csr_wen && (io.rw.addr.inRange(CSRs.mcycle, CSRs.mcycle + CSR.nCtr) || io.rw.addr.inRange(CSRs.mcycleh, CSRs.mcycleh + CSR.nCtr)), UIntToOH(io.rw.addr(log2Ceil(CSR.nCtr+nPerfCounters)-1, 0)), 0.U)
 
   buildDecode()
-  performanceCounters.buildDecode()
 
   io.vector.map { vio =>
     when (vio.set_vconfig.valid) {
