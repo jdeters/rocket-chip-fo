@@ -32,7 +32,6 @@ case class RocketCoreParams(
   mcontextWidth: Int = 0,
   scontextWidth: Int = 0,
   nPMPs: Int = 8,
-  nPerfCounters: Int = 28,
   haveBasicCounters: Boolean = true,
   haveCFlush: Boolean = false,
   misaWritable: Boolean = true,

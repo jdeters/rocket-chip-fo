@@ -212,7 +212,6 @@ class CSRFileIO(implicit p: Parameters) extends CoreBundle
   val interrupt_cause = UInt(OUTPUT, xLen)
   val bp = Vec(nBreakpoints, new BP).asOutput
   val pmp = Vec(nPMPs, new PMP).asOutput
-  val counters = Vec(nPerfCounters, new PerfCounterIO)
   val csrw_counter = UInt(OUTPUT, CSR.nCtr)
   val inhibit_cycle = Output(Bool())
   val inst = Vec(retireWidth, UInt(width = iLen)).asInput

@@ -19,7 +19,7 @@ class PerfCounterIO(implicit p: Parameters) extends CoreBundle
 }
 
 class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
-  csrFile: CSRFile) {
+  csrFile: CSRFile, nPerfCounters: Int) {
 
   val firstCtr = CSRs.cycle
   val firstCtrH = CSRs.cycleh
@@ -32,7 +32,7 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
   val nHPM = CSR.nCtr - firstHPM
   val hpmWidth = 40
 
-  val delegable_counters = ((BigInt(1) << (csrFile.nPerfCounters + firstHPM)) - 1).U
+  val delegable_counters = ((BigInt(1) << (nPerfCounters + firstHPM)) - 1).U
   val (reg_mcounteren, read_mcounteren) = {
     val reg = Reg(UInt(32.W))
     (reg, Mux(csrFile.usingUser, reg & delegable_counters, 0.U))
@@ -42,7 +42,7 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
     (reg, Mux(csrFile.usingSupervisor, reg & delegable_counters, 0.U))
   }
 
-  val reg_mcountinhibit = RegInit(0.U((firstHPM + csrFile.nPerfCounters).W))
+  val reg_mcountinhibit = RegInit(0.U((firstHPM + nPerfCounters).W))
   csrFile.io.inhibit_cycle := reg_mcountinhibit(0)
   val reg_instret = WideCounter(64, csrFile.io.retire, inhibit = reg_mcountinhibit(2))
   val reg_cycle = if (csrFile.enableCommitLog) WideCounter(64, csrFile.io.retire, inhibit = reg_mcountinhibit(0))

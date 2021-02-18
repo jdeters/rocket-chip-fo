@@ -39,7 +39,6 @@ trait CoreParams {
   val useBPWatch: Boolean
   val mcontextWidth: Int
   val scontextWidth: Int
-  val nPerfCounters: Int
   val haveBasicCounters: Boolean
   val haveFSDirty: Boolean
   val misaWritable: Boolean
@@ -95,7 +94,6 @@ trait HasCoreParameters extends HasTileParameters {
   val nBreakpoints = coreParams.nBreakpoints
   val nPMPs = coreParams.nPMPs
   val pmpGranularity = coreParams.pmpGranularity
-  val nPerfCounters = coreParams.nPerfCounters
   val mtvecInit = coreParams.mtvecInit
   val mtvecWritable = coreParams.mtvecWritable
 
