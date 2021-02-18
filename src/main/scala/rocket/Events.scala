@@ -19,7 +19,7 @@ class PerfCounterIO(implicit p: Parameters) extends CoreBundle
 }
 
 class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
-  csrFile: CSRFile, nPerfCounters: Int) {
+  csrFile: CSRFile, nPerfCounters: Int, haveBasicCounters: Boolean) {
 
   val firstCtr = CSRs.cycle
   val firstCtrH = CSRs.cycleh
@@ -54,7 +54,7 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
     WideCounter(hpmWidth, c.inc, reset = false, inhibit = reg_mcountinhibit(firstHPM+i)) }
 
   def buildMappings() = {
-    if (csrFile.coreParams.haveBasicCounters) {
+    if (haveBasicCounters) {
       csrFile.read_mapping += CSRs.mcountinhibit -> reg_mcountinhibit
       csrFile.read_mapping += CSRs.mcycle -> reg_cycle
       csrFile.read_mapping += CSRs.minstret -> reg_instret
@@ -97,7 +97,7 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
         writeCounter(i + firstMHPC, c, csrFile.wdata)
         when (csrFile.decoded_addr(i + firstHPE)) { e := perfEventSets.maskEventSelector(csrFile.wdata) }
       }
-      if (csrFile.coreParams.haveBasicCounters) {
+      if (haveBasicCounters) {
         when (csrFile.decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := csrFile.wdata & ~2.U(csrFile.xLen.W) }  // mcountinhibit bit [1] is tied zero
         writeCounter(CSRs.mcycle, reg_cycle, csrFile.wdata)
         writeCounter(CSRs.minstret, reg_instret, csrFile.wdata)

@@ -39,7 +39,6 @@ trait CoreParams {
   val useBPWatch: Boolean
   val mcontextWidth: Int
   val scontextWidth: Int
-  val haveBasicCounters: Boolean
   val haveFSDirty: Boolean
   val misaWritable: Boolean
   val haveCFlush: Boolean
