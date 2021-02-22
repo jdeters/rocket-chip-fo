@@ -1027,54 +1027,7 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
   }
 
   // gate the clock
-  clock_en_reg := !cacheParams.clockGate ||
-    io.ptw.customCSRs.disableDCacheClockGate ||
-    io.cpu.keep_clock_enabled ||
-    metaArb.io.out.valid || // subsumes resetting || flushing
-    s1_probe || s2_probe ||
-    s1_valid || s2_valid ||
-    tlb_port.req.valid ||
-    s1_tlb_req_valid || s2_tlb_req_valid ||
-    pstore1_held || pstore2_valid ||
-    release_state =/= s_ready ||
-    release_ack_wait || !release_queue_empty ||
-    !tlb.io.req.ready ||
-    cached_grant_wait || uncachedInFlight.asUInt.orR ||
-    lrscCount > 0 || blockProbeAfterGrantCount > 0
-
-  // performance events
-  io.cpu.perf.acquire := edge.done(tl_out_a)
-  io.cpu.perf.release := edge.done(tl_out_c)
-  io.cpu.perf.grant := tl_out.d.valid && d_last
-  io.cpu.perf.tlbMiss := io.ptw.req.fire()
-  io.cpu.perf.storeBufferEmptyAfterLoad := !(
-    (s1_valid && s1_write) ||
-    ((s2_valid && s2_write && !s2_waw_hazard) || pstore1_held) ||
-    pstore2_valid)
-  io.cpu.perf.storeBufferEmptyAfterStore := !(
-    (s1_valid && s1_write) ||
-    (s2_valid && s2_write && pstore1_rmw) ||
-    ((s2_valid && s2_write && !s2_waw_hazard || pstore1_held) && pstore2_valid))
-  io.cpu.perf.canAcceptStoreThenLoad := !(
-    ((s2_valid && s2_write && pstore1_rmw) && (s1_valid && s1_write && !s1_waw_hazard)) ||
-    (pstore2_valid && pstore1_valid_likely && (s1_valid && s1_write)))
-  io.cpu.perf.canAcceptStoreThenRMW := io.cpu.perf.canAcceptStoreThenLoad && !pstore2_valid
-  io.cpu.perf.canAcceptLoadThenLoad := !((s1_valid && s1_write && needsRead(s1_req)) && ((s2_valid && s2_write && !s2_waw_hazard || pstore1_held) || pstore2_valid))
-  io.cpu.perf.blocked := {
-    // stop reporting blocked just before unblocking to avoid overly conservative stalling
-    val beatsBeforeEnd = outer.crossing match {
-      case SynchronousCrossing(_) => 2
-      case RationalCrossing(_) => 1 // assumes 1 < ratio <= 2; need more bookkeeping for optimal handling of >2
-      case _: AsynchronousCrossing => 1 // likewise
-      case _: CreditedCrossing     => 1 // likewise
-    }
-    val near_end_of_refill = if (cacheBlockBytes / beatBytes <= beatsBeforeEnd) tl_out.d.valid else {
-      val refill_count = RegInit(0.U((cacheBlockBytes / beatBytes).log2.W))
-      when (tl_out.d.fire() && grantIsRefill) { refill_count := refill_count + 1 }
-      refill_count >= (cacheBlockBytes / beatBytes - beatsBeforeEnd)
-    }
-    cached_grant_wait && !near_end_of_refill
-  }
+  gateClock()
 
   // report errors
   val (data_error, data_error_uncorrectable, data_error_addr) =
@@ -1140,6 +1093,22 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
       Seq(data_error_type, data_error_dirty, request_source, tag_error_cover),
       Seq(),
       "MemorySystem;;Cache Memory Bit Flip Cross Covers"))
+  }
+
+  def gateClock() = { clock_en_reg := !cacheParams.clockGate ||
+    io.ptw.customCSRs.disableDCacheClockGate ||
+    io.cpu.keep_clock_enabled ||
+    metaArb.io.out.valid || // subsumes resetting || flushing
+    s1_probe || s2_probe ||
+    s1_valid || s2_valid ||
+    tlb_port.req.valid ||
+    s1_tlb_req_valid || s2_tlb_req_valid ||
+    pstore1_held || pstore2_valid ||
+    release_state =/= s_ready ||
+    release_ack_wait || !release_queue_empty ||
+    !tlb.io.req.ready ||
+    cached_grant_wait || uncachedInFlight.asUInt.orR ||
+    lrscCount > 0 || blockProbeAfterGrantCount > 0
   }
 
   } // leaving gated-clock domain
