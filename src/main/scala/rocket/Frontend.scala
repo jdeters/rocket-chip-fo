@@ -38,11 +38,6 @@ class FrontendResp(implicit p: Parameters) extends CoreBundle()(p) {
   val replay = Bool()
 }
 
-class FrontendPerfEvents extends Bundle {
-  val acquire = Bool()
-  val tlbMiss = Bool()
-}
-
 class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val might_request = Bool(OUTPUT)
   val clock_enabled = Bool(INPUT)
@@ -54,7 +49,6 @@ class FrontendIO(implicit p: Parameters) extends CoreBundle()(p) {
   val ras_update = Valid(new RASUpdate)
   val flush_icache = Bool(OUTPUT)
   val npc = UInt(INPUT, width = vaddrBitsExtended)
-  val perf = new FrontendPerfEvents().asInput
 }
 
 class Frontend(val icacheParams: ICacheParams, staticIdForMetadataUseOnly: Int)(implicit p: Parameters) extends LazyModule {
@@ -66,7 +60,7 @@ class Frontend(val icacheParams: ICacheParams, staticIdForMetadataUseOnly: Int)(
 }
 
 class FrontendBundle(val outer: Frontend) extends CoreBundle()(outer.p) {
-  val cpu = new FrontendIO().flip
+  val cpu = (new FrontendIO).flip
   val ptw = new TLBPTWIO()
   val errors = new ICacheErrors
 }
