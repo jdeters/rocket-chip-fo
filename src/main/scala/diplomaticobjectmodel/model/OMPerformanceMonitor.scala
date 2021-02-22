@@ -12,16 +12,17 @@ case class OMPerformanceMonitor(
 ) extends OMComponent
 
 object PerformanceMonitor {
+  //this is never called
   def perfmon(coreParams: RocketCoreParams): Option[OMPerformanceMonitor] = {
-    if (coreParams.haveBasicCounters || coreParams.nPerfCounters > 0) {
+    /*if (true || 28 > 0) {
       Some(OMPerformanceMonitor(
         specifications = List[OMSpecification](PrivilegedArchitectureExtensions.specVersion(MachineLevelISA, "1.10")),
-        hasBasicCounters = coreParams.haveBasicCounters,
-        nAdditionalCounters = coreParams.nPerfCounters
+        hasBasicCounters = true, //coreParams.haveBasicCounters,
+        nAdditionalCounters = 28//coreParams.nPerfCounters
       ))
     }
-    else {
+    else { */
       None
-    }
+    // }
   }
 }
