@@ -147,21 +147,8 @@ class HellaCacheExceptions extends Bundle {
 
 class HellaCacheWriteData(implicit p: Parameters) extends CoreBundle()(p) with HasCoreData
 
-class HellaCachePerfEvents extends Bundle {
-  val acquire = Bool()
-  val release = Bool()
-  val grant = Bool()
-  val tlbMiss = Bool()
-  val blocked = Bool()
-  val canAcceptStoreThenLoad = Bool()
-  val canAcceptStoreThenRMW = Bool()
-  val canAcceptLoadThenLoad = Bool()
-  val storeBufferEmptyAfterLoad = Bool()
-  val storeBufferEmptyAfterStore = Bool()
-}
-
 // interface between D$ and processor/DTLB
-class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
+class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) with HasHellaCachePerfEvents {
   val req = Decoupled(new HellaCacheReq)
   val s1_kill = Bool(OUTPUT) // kill previous cycle's req
   val s1_data = new HellaCacheWriteData().asOutput // data for previous cycle's req
@@ -176,7 +163,6 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val s2_xcpt = (new HellaCacheExceptions).asInput
   val uncached_resp = tileParams.dcache.get.separateUncachedResp.option(Decoupled(new HellaCacheResp).flip)
   val ordered = Bool(INPUT)
-  val perf = new HellaCachePerfEvents().asInput
 
   val keep_clock_enabled = Bool(OUTPUT) // should D$ avoid clock-gating itself?
   val clock_enabled = Bool(INPUT) // is D$ currently being clocked?

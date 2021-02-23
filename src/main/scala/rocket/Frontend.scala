@@ -318,24 +318,25 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
 
   io.cpu.resp <> fq.io.deq
 
-  // performance events
-  io.cpu.perf := icache.io.perf
-  io.cpu.perf.tlbMiss := io.ptw.req.fire()
-  io.errors := icache.io.errors
+  
 
-  // gate the clock
-  clock_en_reg := !rocketParams.clockGate ||
-    io.cpu.might_request || // chicken bit
-    icache.io.keep_clock_enabled || // I$ miss or ITIM access
-    s1_valid || s2_valid || // some fetch in flight
-    !tlb.io.req.ready || // handling TLB miss
-    !fq.io.mask(fq.io.mask.getWidth-1) // queue not full
+  gateClock()
   } // leaving gated-clock domain
 
   def alignPC(pc: UInt) = ~(~pc | (coreInstBytes - 1))
 
   def ccover(cond: Bool, label: String, desc: String)(implicit sourceInfo: SourceInfo) =
     cover(cond, s"FRONTEND_$label", "Rocket;;" + desc)
+
+  def gateClock() = {
+    // gate the clock
+    clock_en_reg := !rocketParams.clockGate ||
+      io.cpu.might_request || // chicken bit
+      icache.io.keep_clock_enabled || // I$ miss or ITIM access
+      s1_valid || s2_valid || // some fetch in flight
+      !tlb.io.req.ready || // handling TLB miss
+      !fq.io.mask(fq.io.mask.getWidth-1) // queue not full
+  }
 }
 
 /** Mix-ins for constructing tiles that have an ICache-based pipeline frontend */
