@@ -14,17 +14,19 @@ import scala.collection.mutable.ArrayBuffer
 
 trait HasHellaCachePerfEvents {
   val perf = new Bundle {
-    val acquire = Bool()
-    val release = Bool()
-    val grant = Bool()
-    val tlbMiss = Bool()
-    val blocked = Bool()
     val canAcceptStoreThenLoad = Bool()
     val canAcceptStoreThenRMW = Bool()
     val canAcceptLoadThenLoad = Bool()
     val storeBufferEmptyAfterLoad = Bool()
     val storeBufferEmptyAfterStore = Bool()
   }.asInput
+}
+
+trait HasFrontEndPerfEvents {
+  val perf = new Bundle {
+      val acquire = Bool()
+      val tlbMiss = Bool()
+    }.asInput
 }
 
 class PerfCounterIO(implicit p: Parameters) extends CoreBundle

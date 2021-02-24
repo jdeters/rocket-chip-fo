@@ -148,7 +148,7 @@ class HellaCacheExceptions extends Bundle {
 class HellaCacheWriteData(implicit p: Parameters) extends CoreBundle()(p) with HasCoreData
 
 // interface between D$ and processor/DTLB
-class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) with HasHellaCachePerfEvents {
+class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) {
   val req = Decoupled(new HellaCacheReq)
   val s1_kill = Bool(OUTPUT) // kill previous cycle's req
   val s1_data = new HellaCacheWriteData().asOutput // data for previous cycle's req
@@ -166,6 +166,12 @@ class HellaCacheIO(implicit p: Parameters) extends CoreBundle()(p) with HasHella
 
   val keep_clock_enabled = Bool(OUTPUT) // should D$ avoid clock-gating itself?
   val clock_enabled = Bool(INPUT) // is D$ currently being clocked?
+  //these are used in both perf and other infrastructure
+  val grant = Bool(INPUT)
+  val release = Bool(INPUT)
+  val blocked = Bool(INPUT)
+  val acquire = Bool(INPUT)
+  val tlbMiss = Bool(INPUT)
 }
 
 /** Base classes for Diplomatic TL2 HellaCaches */

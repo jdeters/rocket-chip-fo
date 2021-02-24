@@ -65,8 +65,7 @@ class FrontendBundle(val outer: Frontend) extends CoreBundle()(outer.p) {
   val errors = new ICacheErrors
 }
 
-@chiselName
-class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
+@chiselName class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
     with HasRocketCoreParameters
     with HasL1ICacheParameters {
   val io = IO(new FrontendBundle(outer))
@@ -318,15 +317,9 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
 
   io.cpu.resp <> fq.io.deq
 
-  
+
 
   gateClock()
-  } // leaving gated-clock domain
-
-  def alignPC(pc: UInt) = ~(~pc | (coreInstBytes - 1))
-
-  def ccover(cond: Bool, label: String, desc: String)(implicit sourceInfo: SourceInfo) =
-    cover(cond, s"FRONTEND_$label", "Rocket;;" + desc)
 
   def gateClock() = {
     // gate the clock
@@ -337,6 +330,12 @@ class FrontendModule(outer: Frontend) extends LazyModuleImp(outer)
       !tlb.io.req.ready || // handling TLB miss
       !fq.io.mask(fq.io.mask.getWidth-1) // queue not full
   }
+  } // leaving gated-clock domain
+
+  def alignPC(pc: UInt) = ~(~pc | (coreInstBytes - 1))
+
+  def ccover(cond: Bool, label: String, desc: String)(implicit sourceInfo: SourceInfo) =
+    cover(cond, s"FRONTEND_$label", "Rocket;;" + desc)
 }
 
 /** Mix-ins for constructing tiles that have an ICache-based pipeline frontend */

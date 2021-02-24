@@ -1028,6 +1028,23 @@ class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
 
   // gate the clock
   gateClock()
+  io.cpu.release := edge.done(tl_out_c)
+  io.cpu.grant := tl_out.d.valid && d_last
+  io.cpu.blocked := {
+      // stop reporting blocked just before unblocking to avoid overly conservative stalling
+      val beatsBeforeEnd = outer.crossing match {
+        case SynchronousCrossing(_) => 2
+        case RationalCrossing(_) => 1 // assumes 1 < ratio <= 2; need more bookkeeping for optimal handling of >2
+        case _: AsynchronousCrossing => 1 // likewise
+        case _: CreditedCrossing     => 1 // likewise
+      }
+      val near_end_of_refill = if (cacheBlockBytes / beatBytes <= beatsBeforeEnd) tl_out.d.valid else {
+        val refill_count = RegInit(0.U((cacheBlockBytes / beatBytes).log2.W))
+        when (tl_out.d.fire() && grantIsRefill) { refill_count := refill_count + 1 }
+        refill_count >= (cacheBlockBytes / beatBytes - beatsBeforeEnd)
+      }
+      cached_grant_wait && !near_end_of_refill
+    }
 
   // report errors
   val (data_error, data_error_uncorrectable, data_error_addr) =

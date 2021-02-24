@@ -54,31 +54,34 @@ class HellaCacheArbiter(n: Int)(implicit p: Parameters) extends Module
 
     io.mem.uncached_resp.foreach(_.ready := false.B)
 
-    for (i <- 0 until n) {
-      val resp = io.requestor(i).resp
-      val tag_hit = io.mem.resp.bits.tag(log2Up(n)-1,0) === UInt(i)
-      resp.valid := io.mem.resp.valid && tag_hit
-      io.requestor(i).s2_xcpt := io.mem.s2_xcpt
-      io.requestor(i).ordered := io.mem.ordered
-      io.requestor(i).perf := io.mem.perf
-      io.requestor(i).s2_nack := io.mem.s2_nack && s2_id === UInt(i)
-      io.requestor(i).s2_nack_cause_raw := io.mem.s2_nack_cause_raw
-      io.requestor(i).s2_uncached := io.mem.s2_uncached
-      io.requestor(i).s2_paddr := io.mem.s2_paddr
-      io.requestor(i).clock_enabled := io.mem.clock_enabled
-      resp.bits := io.mem.resp.bits
-      resp.bits.tag := io.mem.resp.bits.tag >> log2Up(n)
+    connectRequestorToMem()
 
-      io.requestor(i).replay_next := io.mem.replay_next
+    def connectRequestorToMem() = {
+      for (i <- 0 until n) {
+        val resp = io.requestor(i).resp
+        val tag_hit = io.mem.resp.bits.tag(log2Up(n)-1,0) === UInt(i)
+        resp.valid := io.mem.resp.valid && tag_hit
+        io.requestor(i).s2_xcpt := io.mem.s2_xcpt
+        io.requestor(i).ordered := io.mem.ordered
+        io.requestor(i).s2_nack := io.mem.s2_nack && s2_id === UInt(i)
+        io.requestor(i).s2_nack_cause_raw := io.mem.s2_nack_cause_raw
+        io.requestor(i).s2_uncached := io.mem.s2_uncached
+        io.requestor(i).s2_paddr := io.mem.s2_paddr
+        io.requestor(i).clock_enabled := io.mem.clock_enabled
+        resp.bits := io.mem.resp.bits
+        resp.bits.tag := io.mem.resp.bits.tag >> log2Up(n)
 
-      io.requestor(i).uncached_resp.map { uncached_resp =>
-        val uncached_tag_hit = io.mem.uncached_resp.get.bits.tag(log2Up(n)-1,0) === UInt(i)
-        uncached_resp.valid := io.mem.uncached_resp.get.valid && uncached_tag_hit
-        when (uncached_resp.ready && uncached_tag_hit) {
-          io.mem.uncached_resp.get.ready := true.B
+        io.requestor(i).replay_next := io.mem.replay_next
+
+        io.requestor(i).uncached_resp.map { uncached_resp =>
+          val uncached_tag_hit = io.mem.uncached_resp.get.bits.tag(log2Up(n)-1,0) === UInt(i)
+          uncached_resp.valid := io.mem.uncached_resp.get.valid && uncached_tag_hit
+          when (uncached_resp.ready && uncached_tag_hit) {
+            io.mem.uncached_resp.get.ready := true.B
+          }
+          uncached_resp.bits := io.mem.uncached_resp.get.bits
+          uncached_resp.bits.tag := io.mem.uncached_resp.get.bits.tag >> log2Up(n)
         }
-        uncached_resp.bits := io.mem.uncached_resp.get.bits
-        uncached_resp.bits.tag := io.mem.uncached_resp.get.bits.tag >> log2Up(n)
       }
     }
   }
