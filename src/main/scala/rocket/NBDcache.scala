@@ -1006,11 +1006,10 @@ class NonBlockingDCacheModule(outer: NonBlockingDCache) extends HellaCacheModule
   io.cpu.s2_uncached := false.B
   io.cpu.s2_paddr := s2_req.addr
 
-  // performance events
-  io.cpu.acquire := edge.done(tl_out.a)
-  io.cpu.release := edge.done(tl_out.c)
-  io.cpu.tlbMiss := io.ptw.req.fire()
+  gateClock()
 
-  // no clock-gating support
-  io.cpu.clock_enabled := true
+  def gateClock() = {
+    // no clock-gating support
+    io.cpu.clock_enabled := true
+  }
 }

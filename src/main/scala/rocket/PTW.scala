@@ -39,12 +39,6 @@ class TLBPTWIO(implicit p: Parameters) extends CoreBundle()(p)
   val customCSRs = coreParams.customCSRs.asInput
 }
 
-class PTWPerfEvents extends Bundle {
-  val l2miss = Bool()
-  val l2hit = Bool()
-  val pte_miss = Bool()
-  val pte_hit = Bool()
-}
 
 class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
     with HasCoreParameters {
@@ -52,7 +46,6 @@ class DatapathPTWIO(implicit p: Parameters) extends CoreBundle()(p)
   val sfence = Valid(new SFenceReq).flip
   val status = new MStatus().asInput
   val pmp = Vec(nPMPs, new PMP).asInput
-  val perf = new PTWPerfEvents().asOutput
   val customCSRs = coreParams.customCSRs.asInput
   val clock_enabled = Bool(OUTPUT)
 }
@@ -193,15 +186,10 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     (hit && count < pgLevels-1, Mux1H(hits, data))
   }
   val pte_hit = RegNext(false.B)
-  io.dpath.perf.pte_miss := false
-  io.dpath.perf.pte_hit := pte_hit && (state === s_req) && !io.dpath.perf.l2hit
-  assert(!(io.dpath.perf.l2hit && (io.dpath.perf.pte_miss || io.dpath.perf.pte_hit)),
-    "PTE Cache Hit/Miss Performance Monitor Events are lower priority than L2TLB Hit event")
 
   val l2_refill = RegNext(false.B)
   l2_refill_wire := l2_refill
-  io.dpath.perf.l2miss := false
-  io.dpath.perf.l2hit := false
+
   val (l2_hit, l2_error, l2_pte, l2_tlb_ram) = if (coreParams.nL2TLBEntries == 0) (false.B, false.B, Wire(new PTE), None) else {
     val code = new ParityCode
     require(isPow2(coreParams.nL2TLBEntries))
@@ -261,8 +249,6 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
     val s2_entry_vec = s2_rdata.map(_.uncorrected.asTypeOf(new L2TLBEntry(nL2TLBSets)))
     val s2_hit_vec = (0 until coreParams.nL2TLBWays).map(way => s2_valid_vec(way) && (r_tag === s2_entry_vec(way).tag))
     val s2_hit = s2_valid && s2_hit_vec.orR
-    io.dpath.perf.l2miss := s2_valid && !(s2_hit_vec.orR)
-    io.dpath.perf.l2hit := s2_hit
     when (s2_hit) {
       l2_plru.access(r_idx, OHToUInt(s2_hit_vec))
       assert((PopCount(s2_hit_vec) === 1.U) || s2_error, "L2 TLB multi-hit")
@@ -326,41 +312,44 @@ class PTW(n: Int)(implicit edge: TLEdgeOut, p: Parameters) extends CoreModule()(
   val next_state = Wire(init = state)
   state := OptimizationBarrier(next_state)
 
-  switch (state) {
-    is (s_ready) {
-      when (arb.io.out.fire()) {
-        next_state := Mux(arb.io.out.bits.valid, s_req, s_ready)
+  buildControlStateMachine()
+
+  def buildControlStateMachine() = {
+    switch (state) {
+      is (s_ready) {
+        when (arb.io.out.fire()) {
+          next_state := Mux(arb.io.out.bits.valid, s_req, s_ready)
+        }
+        count := pgLevels - minPgLevels - io.dpath.ptbr.additionalPgLevels
       }
-      count := pgLevels - minPgLevels - io.dpath.ptbr.additionalPgLevels
-    }
-    is (s_req) {
-      when (pte_cache_hit) {
-        count := count + 1
-        pte_hit := true
-      }.otherwise {
-        next_state := Mux(io.mem.req.ready, s_wait1, s_req)
+      is (s_req) {
+        when (pte_cache_hit) {
+          count := count + 1
+          pte_hit := true
+        }.otherwise {
+          next_state := Mux(io.mem.req.ready, s_wait1, s_req)
+        }
       }
-    }
-    is (s_wait1) {
-      // This Mux is for the l2_error case; the l2_hit && !l2_error case is overriden below
-      next_state := Mux(l2_hit, s_req, s_wait2)
-    }
-    is (s_wait2) {
-      next_state := s_wait3
-      io.dpath.perf.pte_miss := count < pgLevels-1
-      when (io.mem.s2_xcpt.ae.ld) {
-        resp_ae := true
+      is (s_wait1) {
+        // This Mux is for the l2_error case; the l2_hit && !l2_error case is overriden below
+        next_state := Mux(l2_hit, s_req, s_wait2)
+      }
+      is (s_wait2) {
+        next_state := s_wait3
+        when (io.mem.s2_xcpt.ae.ld) {
+          resp_ae := true
+          next_state := s_ready
+          resp_valid(r_req_dest) := true
+        }
+      }
+      is (s_fragment_superpage) {
         next_state := s_ready
         resp_valid(r_req_dest) := true
-      }
-    }
-    is (s_fragment_superpage) {
-      next_state := s_ready
-      resp_valid(r_req_dest) := true
-      resp_ae := false
-      when (!homogeneous) {
-        count := pgLevels-1
-        resp_fragmented_superpage := true
+        resp_ae := false
+        when (!homogeneous) {
+          count := pgLevels-1
+          resp_fragmented_superpage := true
+        }
       }
     }
   }

@@ -12,6 +12,21 @@ import freechips.rocketchip.config.Parameters
 import chisel3.{withClock}
 import scala.collection.mutable.ArrayBuffer
 
+trait HasPTWPerfEvents {
+  val perf = new Bundle {
+    val l2miss = Bool()
+    val l2hit = Bool()
+    val pte_miss = Bool()
+    val pte_hit = Bool()
+  }.asOutput
+}
+
+trait HasICachePerfEvents {
+  val perf = new Bundle {
+    val acquire = Bool()
+  }.asOutput
+}
+
 trait HasHellaCachePerfEvents {
   val perf = new Bundle {
     val canAcceptStoreThenLoad = Bool()
