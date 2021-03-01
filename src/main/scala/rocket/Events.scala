@@ -245,7 +245,7 @@ class EventSets() {
   }
 
   private def eventSetIdBits = {
-    val bits = log2Ceil(eventSets.size)
+    val bits = if(eventSets.size == 1) 1 else log2Ceil(eventSets.size)
     //require(bits <= maxEventSetIdBits)
     bits
   }
