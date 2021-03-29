@@ -320,6 +320,14 @@ class WithRoccExample extends Config((site, here, up) => {
     })
 })
 
+class WithRoCCAccumulator extends Config((site, here, up) => {
+  case BuildRoCC => List(
+    (p: Parameters) => {
+        val accumulator = LazyModule(new AccumulatorExample(OpcodeSet.custom0, n = 4)(p))
+        accumulator
+    })
+})
+
 class WithDefaultBtb extends Config((site, here, up) => {
   case RocketTilesKey => up(RocketTilesKey, site) map { r =>
     r.copy(btb = Some(BTBParams()))
