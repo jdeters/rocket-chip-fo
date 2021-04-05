@@ -176,13 +176,7 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
   core.io.ptw <> ptw.io.dpath
 
   // Connect the coprocessor interfaces
-  if (outer.roccs.size > 0) {
-    cmdRouter.get.io.in <> core.io.rocc.cmd
-    outer.roccs.foreach(_.module.io.exception := core.io.rocc.exception)
-    core.io.rocc.resp <> respArb.get.io.out
-    core.io.rocc.busy <> (cmdRouter.get.io.busy || outer.roccs.map(_.module.io.busy).reduce(_ || _))
-    core.io.rocc.interrupt := outer.roccs.map(_.module.io.interrupt).reduce(_ || _)
-  }
+  connectRoCC()
 
   // Rocket has higher priority to DTIM than other TileLink clients
   outer.dtim_adapter.foreach { lm => dcachePorts += lm.module.io.dmem }
@@ -196,6 +190,16 @@ class RocketTileModuleImp(outer: RocketTile) extends BaseTileModuleImp(outer)
   // TODO figure out how to move the below into their respective mix-ins
   dcacheArb.io.requestor <> dcachePorts
   ptw.io.requestor <> ptwPorts
+
+  def connectRoCC() = {
+    if (outer.roccs.size > 0) {
+      cmdRouter.get.io.in <> core.io.rocc.cmd
+      outer.roccs.foreach(_.module.io.exception := core.io.rocc.exception)
+      core.io.rocc.resp <> respArb.get.io.out
+      core.io.rocc.busy <> (cmdRouter.get.io.busy || outer.roccs.map(_.module.io.busy).reduce(_ || _))
+      core.io.rocc.interrupt := outer.roccs.map(_.module.io.interrupt).reduce(_ || _)
+    }
+  }
 }
 
 trait HasFpuOpt { this: RocketTileModuleImp =>

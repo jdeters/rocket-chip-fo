@@ -65,7 +65,8 @@ abstract class LazyRoCC(
 }
 
 class LazyRoCCModuleImp(outer: LazyRoCC) extends LazyModuleImp(outer) {
-  val io = IO(new RoCCIO(outer.nPTWPorts))
+  //this is lazy so that co-processors can send IO *outside* of themselves
+  lazy val io = IO(new RoCCIO(outer.nPTWPorts))
 }
 
 /** Mixins for including RoCC **/
@@ -121,8 +122,16 @@ class AccumulatorExample(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Paramet
   override lazy val module = new AccumulatorExampleModuleImp(this)
 }
 
+//TODO: this will need to be moved to Events
+trait HasAccumulatorEventIO {
+  val accumEvent = Output(Bool())
+}
+
 class AccumulatorExampleModuleImp(outer: AccumulatorExample)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
     with HasCoreParameters {
+
+  override lazy val io = IO(new RoCCIO(outer.nPTWPorts) with HasAccumulatorEventIO)
+
   val regfile = Mem(outer.n, UInt(xLen.W))
   val busy = RegInit(VecInit(Seq.fill(outer.n){false.B}))
 
@@ -135,12 +144,16 @@ class AccumulatorExampleModuleImp(outer: AccumulatorExample)(implicit p: Paramet
   val doAccum = funct === 3.U
   val memRespTag = io.mem.resp.bits.tag(log2Up(outer.n)-1,0)
 
+  //assume that the event isn't happening
+  io.accumEvent := false.B
+
   // datapath
   val addend = cmd.bits.rs1
   val accum = regfile(addr)
   val wdata = Mux(doWrite, addend, accum + addend)
 
   when (cmd.fire() && (doWrite || doAccum)) {
+    io.accumEvent := true.B
     regfile(addr) := wdata
   }
 
