@@ -12,6 +12,11 @@ import freechips.rocketchip.config.Parameters
 import chisel3.{withClock}
 import scala.collection.mutable.ArrayBuffer
 
+trait HasAccumEventIO {
+  //only doing this to match how the core IO is built
+  val accumEvent = Bool().asInput
+}
+
 trait HasPTWPerfEvents {
   val perf = new Bundle {
     val l2miss = Bool()
