@@ -122,15 +122,16 @@ class AccumulatorExample(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Paramet
   override lazy val module = new AccumulatorExampleModuleImp(this)
 }
 
-//TODO: this will need to be moved to Events
-trait HasAccumulatorEventIO {
-  val accumEvent = Output(Bool())
-}
 
 class AccumulatorExampleModuleImp(outer: AccumulatorExample)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
     with HasCoreParameters {
 
-  override lazy val io = IO(new RoCCIO(outer.nPTWPorts) with HasAccumulatorEventIO)
+  override lazy val io = IO(new RoCCIO(outer.nPTWPorts) {
+    val accumEvent = Output(Bool())
+  })
+
+  //assume that the event isn't happening
+  io.accumEvent := false.B
 
   val regfile = Mem(outer.n, UInt(xLen.W))
   val busy = RegInit(VecInit(Seq.fill(outer.n){false.B}))
@@ -143,9 +144,6 @@ class AccumulatorExampleModuleImp(outer: AccumulatorExample)(implicit p: Paramet
   val doLoad = funct === 2.U
   val doAccum = funct === 3.U
   val memRespTag = io.mem.resp.bits.tag(log2Up(outer.n)-1,0)
-
-  //assume that the event isn't happening
-  io.accumEvent := false.B
 
   // datapath
   val addend = cmd.bits.rs1

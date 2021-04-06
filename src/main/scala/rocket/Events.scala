@@ -56,7 +56,9 @@ class PerfCounterIO(implicit p: Parameters) extends CoreBundle
 }
 
 class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
-  csrFile: CSRFile, nPerfCounters: Int, haveBasicCounters: Boolean) {
+  csrFile: CSRFile, nPerfCounters: Int) {
+
+  val haveBasicCounters = true
 
   val firstCtr = CSRs.cycle
   val firstCtrH = CSRs.cycleh
