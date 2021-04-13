@@ -55,10 +55,8 @@ class PerfCounterIO(implicit p: Parameters) extends CoreBundle
   val inc = UInt(INPUT, log2Ceil(1+retireWidth))
 }
 
-class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
-  csrFile: CSRFile, nPerfCounters: Int) {
-
-  val haveBasicCounters = true
+abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
+  csrFile: CSRFile, nPerfCounters: Int) extends CSRHardware{
 
   val firstCtr = CSRs.cycle
   val firstCtrH = CSRs.cycleh
@@ -87,70 +85,82 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
   val reg_cycle = if (csrFile.enableCommitLog) WideCounter(64, csrFile.io.retire, inhibit = reg_mcountinhibit(0))
     else withClock(csrFile.io.ungated_clock) { WideCounter(64, !csrFile.io.csr_stall, inhibit = reg_mcountinhibit(0)) }
   csrFile.io.time := reg_cycle
-  val reg_hpmevent = csrFile.io.counters.map(c => Reg(init = UInt(0, csrFile.xLen)))
-    (csrFile.io.counters zip reg_hpmevent) foreach { case (c, e) => c.eventSel := e }
-  val reg_hpmcounter = csrFile.io.counters.zipWithIndex.map { case (c, i) =>
-    WideCounter(hpmWidth, c.inc, reset = false, inhibit = reg_mcountinhibit(firstHPM+i)) }
 
   def buildMappings() = {
-    if (haveBasicCounters) {
-      csrFile.read_mapping += CSRs.mcountinhibit -> reg_mcountinhibit
-      csrFile.read_mapping += CSRs.mcycle -> reg_cycle
-      csrFile.read_mapping += CSRs.minstret -> reg_instret
+    csrFile.read_mapping += CSRs.mcountinhibit -> reg_mcountinhibit
+    csrFile.read_mapping += CSRs.mcycle -> reg_cycle
+    csrFile.read_mapping += CSRs.minstret -> reg_instret
 
-      for (((e, c), i) <- (reg_hpmevent.padTo(nHPM, UInt(0))
-                           zip reg_hpmcounter.map(x => x: UInt).padTo(nHPM, UInt(0))) zipWithIndex) {
-        csrFile.read_mapping += (i + firstHPE) -> e // mhpmeventN
-        csrFile.read_mapping += (i + firstMHPC) -> c // mhpmcounterN
-        if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPC) -> c // hpmcounterN
-        if (csrFile.xLen == 32) {
-          csrFile.read_mapping += (i + firstMHPCH) -> (c >> 32) // mhpmcounterNh
-          if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPCH) -> (c >> 32) // hpmcounterNh
-        }
-      }
-
-      if (csrFile.usingUser) {
-        csrFile.read_mapping += CSRs.mcounteren -> read_mcounteren
-        csrFile.read_mapping += CSRs.cycle -> reg_cycle
-        csrFile.read_mapping += CSRs.instret -> reg_instret
-      }
-
-      if (csrFile.xLen == 32) {
-        csrFile.read_mapping += CSRs.mcycleh -> (reg_cycle >> 32)
-        csrFile.read_mapping += CSRs.minstreth -> (reg_instret >> 32)
-        if (csrFile.usingUser) {
-          csrFile.read_mapping += CSRs.cycleh -> (reg_cycle >> 32)
-          csrFile.read_mapping += CSRs.instreth -> (reg_instret >> 32)
-        }
-      }
+    if (csrFile.usingUser) {
+      csrFile.read_mapping += CSRs.mcounteren -> read_mcounteren
+      csrFile.read_mapping += CSRs.cycle -> reg_cycle
+      csrFile.read_mapping += CSRs.instret -> reg_instret
     }
 
     if (csrFile.usingSupervisor) {
       csrFile.read_mapping += CSRs.scounteren -> read_scounteren
     }
+
+    if (csrFile.xLen == 32) {
+      csrFile.read_mapping += CSRs.mcycleh -> (reg_cycle >> 32)
+      csrFile.read_mapping += CSRs.minstreth -> (reg_instret >> 32)
+      if (csrFile.usingUser) {
+        csrFile.read_mapping += CSRs.cycleh -> (reg_cycle >> 32)
+        csrFile.read_mapping += CSRs.instreth -> (reg_instret >> 32)
+      }
+    }
   }
 
   def buildDecode() = {
     when(csrFile.csr_wen) {
-      for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter) zipWithIndex) {
-        writeCounter(i + firstMHPC, c, csrFile.wdata)
-        when (csrFile.decoded_addr(i + firstHPE)) { e := perfEventSets.maskEventSelector(csrFile.wdata) }
-      }
-      if (haveBasicCounters) {
-        when (csrFile.decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := csrFile.wdata & ~2.U(csrFile.xLen.W) }  // mcountinhibit bit [1] is tied zero
-        writeCounter(CSRs.mcycle, reg_cycle, csrFile.wdata)
-        writeCounter(CSRs.minstret, reg_instret, csrFile.wdata)
+      when (csrFile.decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := csrFile.wdata & ~2.U(csrFile.xLen.W) }  // mcountinhibit bit [1] is tied zero
+      writeCounter(CSRs.mcycle, reg_cycle, csrFile.wdata)
+      writeCounter(CSRs.minstret, reg_instret, csrFile.wdata)
+
+      for (io_dec <- csrFile.io.decode) {
+        val counter_addr = io_dec.csr(log2Ceil(read_mcounteren.getWidth)-1, 0)
+        val allow_counter = (csrFile.reg_mstatus.prv > PRV.S || read_mcounteren(counter_addr)) &&
+          (!csrFile.usingSupervisor || csrFile.reg_mstatus.prv >= PRV.S || read_scounteren(counter_addr))
+
+        when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
+          && !allow_counter) {
+          io_dec.read_illegal := false.B
+        }
       }
     }
+  }
 
-    for (io_dec <- csrFile.io.decode) {
-      val counter_addr = io_dec.csr(log2Ceil(read_mcounteren.getWidth)-1, 0)
-      val allow_counter = (csrFile.reg_mstatus.prv > PRV.S || read_mcounteren(counter_addr)) &&
-        (!csrFile.usingSupervisor || csrFile.reg_mstatus.prv >= PRV.S || read_scounteren(counter_addr))
+  protected def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {
+    if (csrFile.xLen == 32) {
+      val hi = lo + CSRs.mcycleh - CSRs.mcycle
+      when (csrFile.decoded_addr(lo)) { ctr := Cat(ctr(ctr.getWidth-1, 32), wdata) }
+      when (csrFile.decoded_addr(hi)) { ctr := Cat(wdata(ctr.getWidth-33, 0), ctr(31, 0)) }
+    } else {
+      when (csrFile.decoded_addr(lo)) { ctr := wdata(ctr.getWidth-1, 0) }
+    }
+  }
+}
 
-      when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
-        && !allow_counter) {
-        io_dec.read_illegal := false.B
+class DirectPerformanceCounters(perfEventSets: EventSets = new EventSets(),
+  csrFile: CSRFile, nPerfCounters: Int) extends PerformanceCounters(perfEventSets, csrFile, nPerfCounters) {
+
+  val reg_hpmevent = csrFile.io.counters.map(c => Reg(init = UInt(0, csrFile.xLen)))
+    (csrFile.io.counters zip reg_hpmevent) foreach { case (c, e) => c.eventSel := e }
+  val reg_hpmcounter = csrFile.io.counters.zipWithIndex.map { case (c, i) =>
+    WideCounter(hpmWidth, c.inc, reset = false, inhibit = reg_mcountinhibit(firstHPM+i)) }
+
+  override def buildMappings() = {
+    //need to impliment the basic counters too
+    super.buildMappings()
+
+    for (((e, c), i) <- (reg_hpmevent.padTo(nHPM, UInt(0))
+                         zip reg_hpmcounter.map(x => x: UInt).padTo(nHPM, UInt(0))) zipWithIndex) {
+      csrFile.read_mapping += (i + firstHPE) -> e // mhpmeventN
+      csrFile.read_mapping += (i + firstMHPC) -> c // mhpmcounterN
+      if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPC) -> c // hpmcounterN
+      if (csrFile.xLen == 32) {
+        csrFile.read_mapping += (i + firstMHPCH) -> (c >> 32) // mhpmcounterNh
+        if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPCH) -> (c >> 32) // hpmcounterNh
       }
     }
 
@@ -161,18 +171,19 @@ class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
     if (csrFile.usingUser) {
       when (csrFile.decoded_addr(CSRs.mcounteren)) { reg_mcounteren := csrFile.wdata }
     }
-
-    perfEventSets.print()
   }
 
-  private def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {
-    if (csrFile.xLen == 32) {
-      val hi = lo + CSRs.mcycleh - CSRs.mcycle
-      when (csrFile.decoded_addr(lo)) { ctr := Cat(ctr(ctr.getWidth-1, 32), wdata) }
-      when (csrFile.decoded_addr(hi)) { ctr := Cat(wdata(ctr.getWidth-33, 0), ctr(31, 0)) }
-    } else {
-      when (csrFile.decoded_addr(lo)) { ctr := wdata(ctr.getWidth-1, 0) }
+  override def buildDecode() = {
+    super.buildDecode()
+
+    when(csrFile.csr_wen) {
+      for (((e, c), i) <- (reg_hpmevent zip reg_hpmcounter) zipWithIndex) {
+        writeCounter(i + firstMHPC, c, csrFile.wdata)
+        when (csrFile.decoded_addr(i + firstHPE)) { e := perfEventSets.maskEventSelector(csrFile.wdata) }
+      }
     }
+
+    perfEventSets.print()
   }
 }
 

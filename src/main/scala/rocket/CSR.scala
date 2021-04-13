@@ -288,10 +288,16 @@ class VType(implicit p: Parameters) extends CoreBundle {
   }
 }
 
+trait CSRHardware {
+  def buildDecode(): Unit
+  def buildMappings(): Unit
+}
+
 class CSRFile(perfEventSets: EventSets = new EventSets(),
   customCSRs: Seq[CustomCSR] = Nil)(implicit p: Parameters)
     extends CoreModule()(p)
-    with HasCoreParameters {
+    with HasCoreParameters
+    with CSRHardware {
   val io = new CSRFileIO {
     val customCSRs = Vec(CSRFile.this.customCSRs.size, new CustomCSRIO).asOutput
   }
