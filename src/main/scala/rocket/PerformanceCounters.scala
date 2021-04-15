@@ -119,6 +119,14 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
         csrFile.read_mapping += CSRs.instreth -> (reg_instret >> 32)
       }
     }
+
+    if (csrFile.usingSupervisor) {
+      when (csrFile.decoded_addr(CSRs.scounteren)) { reg_scounteren := csrFile.wdata }
+    }
+
+    if (csrFile.usingUser) {
+      when (csrFile.decoded_addr(CSRs.mcounteren)) { reg_mcounteren := csrFile.wdata }
+    }
   }
 
   def buildDecode() = {
@@ -133,6 +141,8 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
       val allow_counter = (csrFile.reg_mstatus.prv > PRV.S || read_mcounteren(counter_addr)) &&
         (!csrFile.usingSupervisor || csrFile.reg_mstatus.prv >= PRV.S || read_scounteren(counter_addr))
 
+      //this never changes, nCtr is a counter. Reguardless of what performance counters
+      //are created, these addresses will always be considered valid
       when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
         && !allow_counter) {
         io_dec.read_illegal := true.B
@@ -171,14 +181,6 @@ class DirectPerformanceCounters(perfEventSets: EventSets = new EventSets(),
         if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPCH) -> (c >> 32) // hpmcounterNh
       }
     }
-
-    if (csrFile.usingSupervisor) {
-      when (csrFile.decoded_addr(CSRs.scounteren)) { reg_scounteren := csrFile.wdata }
-    }
-
-    if (csrFile.usingUser) {
-      when (csrFile.decoded_addr(CSRs.mcounteren)) { reg_mcounteren := csrFile.wdata }
-    }
   }
 
   override def buildDecode() = {
@@ -194,5 +196,61 @@ class DirectPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     }
 
     perfEventSets.print()
+  }
+}
+
+class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
+  csrFile: CSRFile, nPerfCounters: Int, nStatsCounters: Int) extends PerformanceCounters(perfEventSets, csrFile, nPerfCounters) {
+
+  //build out registers for storing events
+  val reg_eventStorage = for (i <- 0 until nStatsCounters) yield {
+    Reg(init = UInt(0, csrFile.xLen))
+  }
+
+  //build out registers for storing counters
+  val reg_counterStorage = for (i <- 0 until nStatsCounters) yield {
+    Reg(init = UInt(0, hpmWidth))
+  }
+
+  override def buildMappings() = {
+    //build the mappings for the non-user assignable counters
+    super.buildMappings()
+
+    //assign all the addresses for accessing the event and counter registers
+    for (((e, c), i) <- (reg_eventStorage.padTo(nHPM, UInt(0))
+                         zip reg_counterStorage.map(x => x: UInt).padTo(nHPM, UInt(0))) zipWithIndex) {
+      csrFile.read_mapping += (i + firstHPE) -> e // mhpmeventN
+      csrFile.read_mapping += (i + firstMHPC) -> c // mhpmcounterN
+      if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPC) -> c // hpmcounterN
+      if (csrFile.xLen == 32) {
+        csrFile.read_mapping += (i + firstMHPCH) -> (c >> 32) // mhpmcounterNh
+        if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPCH) -> (c >> 32) // hpmcounterNh
+      }
+    }
+  }
+
+  override def buildDecode() = {
+    //build the decode for the non-user assignable counters
+    super.buildDecode()
+
+    //tell the CSR what to do with signal information for the counters
+    when(csrFile.csr_wen) {
+      for (((e, c), i) <- (reg_eventStorage zip reg_counterStorage) zipWithIndex) {
+        writeCounter(i + firstMHPC, c, csrFile.wdata)
+        when (csrFile.decoded_addr(i + firstHPE)) { e := perfEventSets.maskEventSelector(csrFile.wdata) }
+      }
+    }
+
+    perfEventSets.print()
+  }
+
+  def writeCounter(lo: Int, ctr: UInt, wdata: UInt) = {
+    if (csrFile.xLen == 32) {
+      val hi = lo + CSRs.mcycleh - CSRs.mcycle
+      when (csrFile.decoded_addr(lo)) { ctr := Cat(ctr(ctr.getWidth-1, 32), wdata) }
+      when (csrFile.decoded_addr(hi)) { ctr := Cat(wdata(ctr.getWidth-33, 0), ctr(31, 0)) }
+    } else {
+      when (csrFile.decoded_addr(lo)) { ctr := wdata(ctr.getWidth-1, 0) }
+    }
   }
 }
