@@ -212,62 +212,58 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     Reg(init = UInt(0, hpmWidth))
   }
 
-  //each real counter will be responsible for ceil(n/m) stats counters
-  val counterGroupSize = (nStatsCounters/nPerfCounters).ceil.asInstanceOf[Int]
-
-  //each counter will be related to the i + (n/m)th counters
+  //each real counter will be related to the i + (nPerfCounter)th counters
   val counterMatrix = for(i <- 0 until nPerfCounters) yield {
-    for (j <- i until nStatsCounters by counterGroupSize) yield {
+    for (j <- i until nStatsCounters by nPerfCounters) yield {
       (reg_eventStorage(j), reg_counterStorage(j))
     }
   }
 
   //tell the event management it's time to do a swap
-  val triggerSwap = Wire(Bool())
-  when(reg_cycle % 1000 === 0) {
-    triggerSwap := true.B
-  } .otherwise {
-    triggerSwap := false.B
-  }
+  val triggerSwap = (reg_cycle % 1000) === 0.U
 
   for(((e,c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex)
     buildEventManagement(counterMatrix(i), e, c)
 
   private def buildEventManagement(storage: Seq[(UInt, UInt)], realEvent: UInt, realCounter: WideCounter) = {
-    //build the maps needed for the muxes
-    val eventMuxMap = (for (((e,_), i) <- storage.zipWithIndex) yield {
-      (i.U -> e)
-    }).toSeq
-
-    val counterMuxMap = (for(((_,c), i) <- storage.zipWithIndex) yield {
-      (i.U -> c)
-    }).toSeq
-
     //circular counter to point to the current event being sampled
     val counter = Counter(storage.length)
 
     //mux for finding the event
-    val currentEvent = MuxLookup(counter.value, storage(0)._1, eventMuxMap)
+    val currentEventMux = MuxLookup(counter.value, storage(0)._1,
+      (for (((e,_), i) <- storage.zipWithIndex) yield {
+        (i.U -> e)
+      }).toSeq)
 
     //mux for finding the counter
-    val currentCounter = MuxLookup(counter.value, storage(0)._2, counterMuxMap)
+    val currentCounterMux = MuxLookup(counter.value, storage(0)._2,
+      (for(((_,c), i) <- storage.zipWithIndex) yield {
+        (i.U -> c)
+      }).toSeq)
+
+    //The real event and real counter are set to what the mux points to
+    realEvent := currentEventMux
+    realCounter := currentCounterMux
 
     //when the swap is triggered
     when(triggerSwap){
+      //printf("Counter %d\n", counter.value)
+      printf("Before Real Event %x\n", realEvent)
+      printf("Before Current Event %x\n", currentEventMux)
+      //printf("Real Counter %d\n", realCounter)
+      //printf("Current Counter %d\n", currentCounter)
+
       //if the event in the storage is what's currently in the realEvent, write the update
       //the event storage may have changed, so we need to check this
       for(i <- 0 until storage.length) {
-        when(counter.value === i && currentEvent === realEvent) {
+        when(counter.value === i && currentEventMux === realEvent) {
+          printf("Write back triggered!\n")
           storage(i)._2 := realCounter
         }
       }
 
       //incriment counter to next stored event
       counter.inc
-
-      //write new event and counter from storage to the realEvent and realCounter
-      realEvent := currentEvent
-      realCounter := currentCounter
     }
   }
 
