@@ -235,34 +235,18 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
         (i.U -> e)
       }).toSeq)
 
-    //mux for finding the counter
-    val currentCounterMux = MuxLookup(counter.value, storage(0)._2,
-      (for(((_,c), i) <- storage.zipWithIndex) yield {
-        (i.U -> c)
-      }).toSeq)
-
     //The real event and real counter are set to what the mux points to
     realEvent := currentEventMux
-    realCounter := currentCounterMux
+
+    for(i <- 0 until storage.length) {
+      when(counter.value === i) {
+        storage(i)._2 := storage(i)._2 + realCounter
+      }
+    }
 
     //when the swap is triggered
     when(triggerSwap){
-      //printf("Counter %d\n", counter.value)
-      printf("Before Real Event %x\n", realEvent)
-      printf("Before Current Event %x\n", currentEventMux)
-      //printf("Real Counter %d\n", realCounter)
-      //printf("Current Counter %d\n", currentCounter)
-
-      //if the event in the storage is what's currently in the realEvent, write the update
-      //the event storage may have changed, so we need to check this
-      for(i <- 0 until storage.length) {
-        when(counter.value === i && currentEventMux === realEvent) {
-          printf("Write back triggered!\n")
-          storage(i)._2 := realCounter
-        }
-      }
-
-      //incriment counter to next stored event
+      realCounter := 0.U
       counter.inc
     }
   }
