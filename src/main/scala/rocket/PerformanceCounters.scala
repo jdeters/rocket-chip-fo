@@ -220,7 +220,7 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   }
 
   //tell the event management it's time to do a swap
-  val triggerAccum = (reg_cycle % 1000) === 0.U
+  val triggerAccum = (reg_cycle % 10000) === 0.U
   val triggerSwap = RegNext(triggerAccum)
 
   for(((e,c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex)
