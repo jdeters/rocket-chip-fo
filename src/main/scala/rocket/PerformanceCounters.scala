@@ -220,7 +220,8 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   }
 
   //tell the event management it's time to do a swap
-  val triggerSwap = (reg_cycle % 1000) === 0.U
+  val triggerAccum = (reg_cycle % 1000) === 0.U
+  val triggerSwap = RegNext(triggerAccum)
 
   for(((e,c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex)
     buildEventManagement(counterMatrix(i), e, c)
@@ -238,14 +239,16 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     //The real event and real counter are set to what the mux points to
     realEvent := currentEventMux
 
+    //when the swap is triggered
     for(i <- 0 until storage.length) {
-      when(counter.value === i) {
-        storage(i)._2 := storage(i)._2 + realCounter
+      when(counter.value === i && triggerAccum) {
+        storage(i)._2 := storage(i)._2 + (realCounter * storage.length)
       }
     }
 
-    //when the swap is triggered
-    when(triggerSwap){
+    //once cycle later, set the registers to 0 and incriment the counter
+    when(triggerSwap) {
+      realEvent := 0.U
       realCounter := 0.U
       counter.inc
     }
@@ -257,7 +260,7 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
 
     //assign all the addresses for accessing the event and counter registers
     for (((e, c), i) <- (reg_eventStorage.padTo(nHPM, UInt(0))
-                         zip reg_counterStorage.map(x => x: UInt).padTo(nHPM, UInt(0))) zipWithIndex) {
+                         zip reg_counterStorage.padTo(nHPM, UInt(0))) zipWithIndex) {
       csrFile.read_mapping += (i + firstHPE) -> e // mhpmeventN
       csrFile.read_mapping += (i + firstMHPC) -> c // mhpmcounterN
       if (csrFile.usingUser) csrFile.read_mapping += (i + firstHPC) -> c // hpmcounterN
