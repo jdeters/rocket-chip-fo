@@ -204,12 +204,12 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
 
   //build out registers for storing events
   val reg_eventStorage = for (i <- 0 until nStatsCounters) yield {
-    Reg(init = UInt(0, csrFile.xLen))
+    RegInit(0.U(csrFile.xLen.W))
   }
 
   //build out registers for storing counters
   val reg_counterStorage = for (i <- 0 until nStatsCounters) yield {
-    Reg(init = UInt(0, hpmWidth))
+    Reg(UInt(hpmWidth))
   }
 
   //each real counter will be related to the i + (nPerfCounter)th counters
@@ -223,12 +223,17 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   val triggerAccum = (reg_cycle % 10000) === 0.U
   val triggerSwap = RegNext(triggerAccum)
 
+  //circular counter to point to the current event being sampled
+  require(nStatsCounters % nPerfCounters == 0)
+  val counter = Counter(nStatsCounters/nPerfCounters)
+  when(triggerSwap) {
+    counter.inc
+  }
+
   for(((e,c), i) <- (reg_hpmevent zip reg_hpmcounter).zipWithIndex)
     buildEventManagement(counterMatrix(i), e, c)
 
   private def buildEventManagement(storage: Seq[(UInt, UInt)], realEvent: UInt, realCounter: WideCounter) = {
-    //circular counter to point to the current event being sampled
-    val counter = Counter(storage.length)
 
     //mux for finding the event
     val currentEventMux = MuxLookup(counter.value, storage(0)._1,
@@ -242,7 +247,7 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     //when the swap is triggered
     for(i <- 0 until storage.length) {
       when(counter.value === i && triggerAccum) {
-        storage(i)._2 := storage(i)._2 + (realCounter * storage.length)
+        storage(i)._2 := storage(i)._2 + realCounter
       }
     }
 
@@ -250,7 +255,6 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     when(triggerSwap) {
       realEvent := 0.U
       realCounter := 0.U
-      counter.inc
     }
   }
 
