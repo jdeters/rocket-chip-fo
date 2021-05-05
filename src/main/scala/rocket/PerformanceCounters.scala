@@ -9,7 +9,7 @@ import freechips.rocketchip.util._
 import freechips.rocketchip.util.property._
 import freechips.rocketchip.tile._
 import freechips.rocketchip.config.Parameters
-import chisel3.{withClock}
+import chisel3.{withClock, VecInit}
 import scala.collection.mutable.ArrayBuffer
 
 trait HasAccumEventIO {
@@ -203,19 +203,19 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   csrFile: CSRFile, nPerfCounters: Int, nStatsCounters: Int) extends PerformanceCounters(perfEventSets, csrFile, nPerfCounters) {
 
   //build out registers for storing events
-  val reg_eventStorage = for (i <- 0 until nStatsCounters) yield {
-    RegInit(0.U(csrFile.xLen.W))
-  }
+  val reg_eventStorage = RegInit(VecInit(Seq.fill(nStatsCounters)(0.U(csrFile.xLen.W))))
 
   //build out registers for storing counters
-  val reg_counterStorage = for (i <- 0 until nStatsCounters) yield {
-    Reg(UInt(hpmWidth))
-  }
+  val reg_counterStorage = Reg(Vec(nStatsCounters, UInt(hpmWidth.W)))
 
   //each real counter will be related to the i + (nPerfCounter)th counters
+  require(nStatsCounters % nPerfCounters == 0)
+  val statsLen = nStatsCounters/nPerfCounters
+
   val counterMatrix = for(i <- 0 until nPerfCounters) yield {
-    for (j <- i until nStatsCounters by nPerfCounters) yield {
-      (reg_eventStorage(j), reg_counterStorage(j))
+    val offset = i * statsLen
+    for (j <- 0 until statsLen) yield {
+      (reg_eventStorage(offset + j), reg_counterStorage(offset + j))
     }
   }
 
@@ -224,8 +224,7 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   val triggerSwap = RegNext(triggerAccum)
 
   //circular counter to point to the current event being sampled
-  require(nStatsCounters % nPerfCounters == 0)
-  val counter = Counter(nStatsCounters/nPerfCounters)
+  val counter = Counter(statsLen)
   when(triggerSwap) {
     counter.inc
   }
@@ -247,7 +246,7 @@ class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
     //when the swap is triggered
     for(i <- 0 until storage.length) {
       when(counter.value === i && triggerAccum) {
-        storage(i)._2 := storage(i)._2 + realCounter
+        storage(i)._2 := storage(i)._2 + (realCounter * storage.length)
       }
     }
 
