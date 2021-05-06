@@ -199,6 +199,51 @@ class DirectPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   }
 }
 
+class PCPerformanceCounters (perfEventSets: EventSets = new EventSets(),
+  csrFile: CSRFile, nPerfCounters: Int) extends DirectPerformanceCounters(perfEventSets, csrFile, nPerfCounters) {
+  val reg_addressInhibit = Reg(Bool())
+  reg_addressInhibit := true.B //assume that we're going to inhibit things
+
+  override val reg_hpmcounter = csrFile.io.counters.zipWithIndex.map { case (c, i) =>
+    WideCounter(hpmWidth, c.inc, reset = false, inhibit = (reg_mcountinhibit(firstHPM+i) || reg_addressInhibit)) }
+
+  val addr_PCStart = 0x800
+  val reg_PCStart = RegInit(0.U(csrFile.vaddrBitsExtended.W))
+
+  val addr_PCEnd = addr_PCStart + 1
+  val reg_PCEnd = RegInit(0.U(csrFile.vaddrBitsExtended.W))
+
+  val inAddressRange = csrFile.io.pc > reg_PCStart && csrFile.io.pc < reg_PCEnd
+  val registersEmpty = reg_PCStart === 0.U && reg_PCEnd === 0.U
+
+  //when we're between the addresses or the registers are empty, count
+  when(inAddressRange || registersEmpty) {
+    reg_addressInhibit := false.B
+  }
+
+  override def buildMappings() = {
+    super.buildMappings()
+
+    csrFile.read_mapping += addr_PCStart -> reg_PCStart
+    csrFile.read_mapping += addr_PCEnd -> reg_PCEnd
+  }
+
+  override def buildDecode() = {
+    super.buildDecode()
+
+    when(csrFile.csr_wen) {
+      when (csrFile.decoded_addr(addr_PCStart)) {
+        reg_PCStart := csrFile.wdata
+      }
+
+      when(csrFile.decoded_addr(addr_PCEnd)) {
+        reg_PCEnd := csrFile.wdata
+      }
+    }
+  }
+}
+
+
 class StatisticalPerformanceCounters(perfEventSets: EventSets = new EventSets(),
   csrFile: CSRFile, nPerfCounters: Int, nStatsCounters: Int) extends PerformanceCounters(perfEventSets, csrFile, nPerfCounters) {
 
