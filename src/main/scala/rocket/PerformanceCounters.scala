@@ -148,6 +148,7 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
         io_dec.read_illegal := true.B
       }
     }
+
   }
 
   protected def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {
@@ -207,21 +208,21 @@ class PCPerformanceCounters (perfEventSets: EventSets = new EventSets(),
   override val reg_hpmcounter = csrFile.io.counters.zipWithIndex.map { case (c, i) =>
     WideCounter(hpmWidth, c.inc, reset = false, inhibit = (reg_mcountinhibit(firstHPM+i) || reg_addressInhibit)) }
 
-  val addr_PCStart = 0x800
-  val reg_PCStart = RegInit(0.U(csrFile.vaddrBitsExtended.W))
+  val addr_PCStart = 0x80000000L
+  //val reg_PCStart = RegInit(0.U(csrFile.vaddrBitsExtended.W))
 
-  val addr_PCEnd = addr_PCStart + 1
-  val reg_PCEnd = RegInit(0.U(csrFile.vaddrBitsExtended.W))
+  val addr_PCEnd = 0x90000000L
+  //val reg_PCEnd = RegInit(0.U(csrFile.vaddrBitsExtended.W))
 
-  val inAddressRange = csrFile.io.pc > reg_PCStart && csrFile.io.pc < reg_PCEnd
-  val registersEmpty = reg_PCStart === 0.U && reg_PCEnd === 0.U
+  val inAddressRange = csrFile.io.pc > addr_PCStart.U && csrFile.io.pc < addr_PCEnd.U
+  //val registersEmpty = reg_PCStart === 0.U && reg_PCEnd === 0.U
 
   //when we're between the addresses or the registers are empty, count
-  when(inAddressRange || registersEmpty) {
+  when(inAddressRange) {
     reg_addressInhibit := false.B
   }
 
-  override def buildMappings() = {
+  /* override def buildMappings() = {
     super.buildMappings()
 
     csrFile.read_mapping += addr_PCStart -> reg_PCStart
@@ -233,14 +234,14 @@ class PCPerformanceCounters (perfEventSets: EventSets = new EventSets(),
 
     when(csrFile.csr_wen) {
       when (csrFile.decoded_addr(addr_PCStart)) {
-        reg_PCStart := csrFile.wdata
+        reg_PCStart := csrFile.wdata(csrFile.vaddrBitsExtended-1,0)
       }
 
       when(csrFile.decoded_addr(addr_PCEnd)) {
-        reg_PCEnd := csrFile.wdata
+        reg_PCEnd := csrFile.wdata(csrFile.vaddrBitsExtended-1,0)
       }
     }
-  }
+  } */
 }
 
 
