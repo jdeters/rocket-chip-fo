@@ -119,7 +119,9 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
         csrFile.read_mapping += CSRs.instreth -> (reg_instret >> 32)
       }
     }
+  }
 
+  def buildDecode() = {
     if (csrFile.usingSupervisor) {
       when (csrFile.decoded_addr(CSRs.scounteren)) { reg_scounteren := csrFile.wdata }
     }
@@ -127,9 +129,7 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
     if (csrFile.usingUser) {
       when (csrFile.decoded_addr(CSRs.mcounteren)) { reg_mcounteren := csrFile.wdata }
     }
-  }
 
-  def buildDecode() = {
     when(csrFile.csr_wen) {
       when (csrFile.decoded_addr(CSRs.mcountinhibit)) { reg_mcountinhibit := csrFile.wdata & ~2.U(csrFile.xLen.W) }  // mcountinhibit bit [1] is tied zero
       writeCounter(CSRs.mcycle, reg_cycle, csrFile.wdata)
