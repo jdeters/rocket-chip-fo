@@ -562,14 +562,12 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
     io_dec.vector_illegal := io.status.vs === 0 || !reg_misa('v'-'a')
     io_dec.fp_csr := decodeFast(fp_csrs.keys.toList)
     io_dec.rocc_illegal := io.status.xs === 0 || !reg_misa('x'-'a')
-    when(reg_mstatus.prv < io_dec.csr(9,8) ||
+    io_dec.read_illegal := reg_mstatus.prv < io_dec.csr(9,8) ||
       !decodeAny(read_mapping) ||
       io_dec.csr === CSRs.satp && !allow_sfence_vma ||
       decodeFast(debug_csrs.keys.toList) && !reg_debug ||
       decodeFast(vector_csrs.keys.toList) && io_dec.vector_illegal ||
-      io_dec.fp_csr && io_dec.fp_illegal) {
-        io_dec.read_illegal := false.B
-      }
+      io_dec.fp_csr && io_dec.fp_illegal
     io_dec.write_illegal := io_dec.csr(11,10).andR
     io_dec.write_flush := !(io_dec.csr >= CSRs.mscratch && io_dec.csr <= CSRs.mtval || io_dec.csr >= CSRs.sscratch && io_dec.csr <= CSRs.stval)
     io_dec.system_illegal := reg_mstatus.prv < io_dec.csr(9,8) ||
