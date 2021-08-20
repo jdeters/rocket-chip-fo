@@ -496,10 +496,10 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
     CSRs.vl -> reg_vconfig.get.vl,
     CSRs.vlenb -> (vLen / 8).U)
 
+  val read_sie = reg_mie & read_mideleg
+  val read_sip = read_mip & read_mideleg
+  val read_sstatus = Wire(init = 0.U.asTypeOf(new MStatus))
   if (usingSupervisor) {
-    val read_sie = reg_mie & read_mideleg
-    val read_sip = read_mip & read_mideleg
-    val read_sstatus = Wire(init = 0.U.asTypeOf(new MStatus))
     read_sstatus.sd := io.status.sd
     read_sstatus.uxl := io.status.uxl
     read_sstatus.sd_rv32 := io.status.sd_rv32
@@ -883,10 +883,6 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
     read_mapping ++= vector_csrs
 
     if(usingSupervisor) {
-      val read_sstatus = Wire(init = 0.U.asTypeOf(new MStatus))
-      val read_sip = read_mip & read_mideleg
-      val read_sie = reg_mie & read_mideleg
-
       read_mapping += CSRs.sstatus -> (read_sstatus.asUInt())(xLen-1,0)
       read_mapping += CSRs.sip -> read_sip.asUInt
       read_mapping += CSRs.sie -> read_sie.asUInt
