@@ -135,20 +135,6 @@ abstract class PerformanceCounters(perfEventSets: EventSets = new EventSets(),
       writeCounter(CSRs.mcycle, reg_cycle, csrFile.wdata)
       writeCounter(CSRs.minstret, reg_instret, csrFile.wdata)
     }
-
-    for (io_dec <- csrFile.io.decode) {
-      val counter_addr = io_dec.csr(log2Ceil(read_mcounteren.getWidth)-1, 0)
-      val allow_counter = (csrFile.reg_mstatus.prv > PRV.S || read_mcounteren(counter_addr)) &&
-        (!csrFile.usingSupervisor || csrFile.reg_mstatus.prv >= PRV.S || read_scounteren(counter_addr))
-
-      //this never changes, nCtr is a counter. Reguardless of what performance counters
-      //are created, these addresses will always be considered valid
-      when((io_dec.csr.inRange(firstCtr, firstCtr + CSR.nCtr) || io_dec.csr.inRange(firstCtrH, firstCtrH + CSR.nCtr))
-        && !allow_counter) {
-        io_dec.read_illegal := true.B
-      }
-    }
-
   }
 
   protected def writeCounter(lo: Int, ctr: WideCounter, wdata: UInt) = {

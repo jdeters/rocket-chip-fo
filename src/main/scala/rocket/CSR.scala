@@ -551,17 +551,15 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
   val allow_sfence_vma = Bool(!usingVM) || reg_mstatus.prv > PRV.S || !reg_mstatus.tvm
   val allow_sret = Bool(!usingSupervisor) || reg_mstatus.prv > PRV.S || !reg_mstatus.tsr
 
-  for(io_dec <- io.decode) {
-    ioDecodeSet(io_dec)
-  }
-
   //NOTE: Careful with this
-  private def ioDecodeSet(io_dec: CSRDecodeIO) {
+  for(io_dec <- io.decode) {
     def decodeAny(m: LinkedHashMap[Int,Bits]): Bool = m.map { case(k: Int, _: Bits) => io_dec.csr === k }.reduce(_||_)
     def decodeFast(s: Seq[Int]): Bool = DecodeLogic(io_dec.csr, s.map(_.U), (read_mapping -- s).keys.toList.map(_.U))
 
     val _ :: is_break :: is_ret :: _ :: is_wfi :: is_sfence :: Nil =
       DecodeLogic(io_dec.csr << 20, decode_table(0)._2.map(x=>X), decode_table).map(_.asBool)
+
+    def allowCounter() = false.B
 
     io_dec.fp_illegal := io.status.fs === 0 || !reg_misa('f'-'a')
     io_dec.vector_illegal := io.status.vs === 0 || !reg_misa('v'-'a')
@@ -570,6 +568,7 @@ class CSRFile(perfEventSets: EventSets = new EventSets(),
     io_dec.read_illegal := reg_mstatus.prv < io_dec.csr(9,8) ||
       !decodeAny(read_mapping) ||
       io_dec.csr === CSRs.satp && !allow_sfence_vma ||
+      (io_dec.csr.inRange(CSRs.cycle, CSRs.cycle + CSR.nCtr) || io_dec.csr.inRange(CSRs.cycleh, CSRs.cycleh + CSR.nCtr)) && !allowCounter() ||
       decodeFast(debug_csrs.keys.toList) && !reg_debug ||
       decodeFast(vector_csrs.keys.toList) && io_dec.vector_illegal ||
       io_dec.fp_csr && io_dec.fp_illegal
